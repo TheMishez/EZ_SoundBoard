@@ -1,0 +1,4 @@
+LIBRARY MishezPadApo
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

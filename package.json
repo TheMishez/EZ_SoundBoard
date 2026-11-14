@@ -1,0 +1,55 @@
+{
+  "name": "mishez-pad",
+  "productName": "Mishez Pad",
+  "version": "1.0.0",
+  "description": "A modern soundboard that plays sounds through your microphone \u2014 with global hotkeys, auto push-to-talk, mic passthrough and per-sound trimming.",
+  "main": "src/main/main.js",
+  "author": "EZGGco",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "build:native": "cmake -S native -B native/build -A x64 && cmake --build native/build --config Release",
+    "dist": "npm run build:native && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "optionalDependencies": {
+    "uiohook-napi": "^1.5.4"
+  },
+  "build": {
+    "appId": "com.ezggco.mishezpad",
+    "productName": "Mishez Pad",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/uiohook-napi/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "include": "build/installer.nsh",
+      "artifactName": "MishezPad-Setup-${version}.exe"
+    },
+    "extraResources": [
+      {
+        "from": "native/bin",
+        "to": "driver",
+        "filter": [
+          "*.exe",
+          "*.dll"
+        ]
+      }
+    ]
+  }
+}
