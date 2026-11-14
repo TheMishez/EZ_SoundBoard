@@ -22,6 +22,16 @@ protocol.registerSchemesAsPrivileged([
 const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 
 const USER_DIR = app.getPath('userData');
+
+// Small settings that must be known before the app starts (read synchronously).
+const CONFIG_FILE = path.join(USER_DIR, 'config.json');
+function readConfig() {
+  try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { return {}; }
+}
+const config = readConfig();
+if (config.hardwareAcceleration === false) app.disableHardwareAcceleration();
+// Keep the JS heap modest - the app holds no large JS data (audio lives in the audio engine).
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 const SOUND_DIR = path.join(USER_DIR, 'sounds');
 const LIB_FILE = path.join(USER_DIR, 'library.json');
 const ASSETS = path.join(__dirname, '..', '..', 'assets');
@@ -267,6 +277,12 @@ ipcMain.on('win:min', () => win && win.minimize());
 ipcMain.on('win:max', () => win && (win.isMaximized() ? win.unmaximize() : win.maximize()));
 ipcMain.on('win:close', () => win && win.close());
 ipcMain.on('win:closeToTray', (_e, v) => { closeToTray = !!v; });
+ipcMain.handle('app:getHwAccel', () => config.hardwareAcceleration !== false);
+ipcMain.handle('app:setHwAccel', (_e, on) => {
+  config.hardwareAcceleration = !!on;
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config));
+  return true;
+});
 ipcMain.on('app:openExternal', (_e, url) => {
   if (/^https?:\/\//i.test(url)) shell.openExternal(url);
 });

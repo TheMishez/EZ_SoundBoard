@@ -1,8 +1,14 @@
 # EZ Soundboard
 
-A modern Windows soundboard that plays sounds **through your microphone**, with a fresh UI.
+A modern Windows soundboard that plays sounds **through your microphone**, similar to Soundpad, but with a fresh UI and a few extras.
 
-![main](docs/screenshot-main.png)
+![EZ Soundboard](docs/screenshot-main.png)
+
+| List view | Sound editor |
+|---|---|
+| ![List view](docs/screenshot-list.png) | ![Editor](docs/screenshot-editor.png) |
+| **Microphone (direct mode)** | **Auto push-to-talk** |
+| ![Microphone](docs/screenshot-microphone.png) | ![Push-to-talk](docs/screenshot-push-to-talk.png) |
 
 ## Features
 - **Plays straight into your real mic**: nothing else to install. Your voice keeps working in every game and in Discord. A VB-CABLE mode is still available as a fallback.

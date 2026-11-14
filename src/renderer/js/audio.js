@@ -11,6 +11,7 @@ class EZSBTap extends AudioWorkletProcessor {
     this.buf = new Float32Array(this.block * 2);
     this.n = 0;
     this.active = false;
+    this.silentBlocks = 0;
     this.port.onmessage = (e) => { this.active = !!e.data.active; this.n = 0; };
   }
 
@@ -24,8 +25,14 @@ class EZSBTap extends AudioWorkletProcessor {
       this.buf[this.n * 2] = L ? L[i] : 0;
       this.buf[this.n * 2 + 1] = R ? R[i] : 0;
       if (++this.n === this.block) {
-        const out = this.buf.slice(0);
-        this.port.postMessage(out.buffer, [out.buffer]);
+        // Nothing playing for a while? Stop streaming silence to the mic plugin (saves CPU).
+        let peak = 0;
+        for (let k = 0; k < this.buf.length; k++) { const a = Math.abs(this.buf[k]); if (a > peak) peak = a; }
+        this.silentBlocks = peak < 1e-5 ? this.silentBlocks + 1 : 0;
+        if (this.silentBlocks < 50) {
+          const out = this.buf.slice(0);
+          this.port.postMessage(out.buffer, [out.buffer]);
+        }
         this.n = 0;
       }
     }
@@ -90,6 +97,9 @@ class AudioEngine {
     this.duckLevel = 0.35;
 
     this.cache = new Map();
+    this.cacheBytes = 0;
+    this.cacheLimit = 128 * 1024 * 1024;
+    this.pinned = new Set();
     this.loading = new Map();
     this.voices = new Map();
     this.nextId = 1;
@@ -224,21 +234,55 @@ class AudioEngine {
 
   /* ---------- buffers ---------- */
 
+  /**
+   * Decoded audio is big (48 kHz stereo float = ~23 MB per minute), so the cache has a byte
+   * budget and drops the least-recently-used sounds first. Sounds that are playing, plus any
+   * file in `pinned` (hotkeys / favorites), are never dropped.
+   */
+  static bytesOf(buf) { return buf.length * buf.numberOfChannels * 4; }
+
   async getBuffer(file) {
-    if (this.cache.has(file)) return this.cache.get(file);
+    if (this.cache.has(file)) {
+      const buf = this.cache.get(file);
+      this.cache.delete(file); // move to the "recently used" end
+      this.cache.set(file, buf);
+      return buf;
+    }
     if (this.loading.has(file)) return this.loading.get(file);
     const p = (async () => {
-      const u8 = await window.api.readSound(file);
+      let u8 = await window.api.readSound(file);
       const ab = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      u8 = null;
       const buf = await this.mon.decodeAudioData(ab);
       this.cache.set(file, buf);
+      this.cacheBytes += AudioEngine.bytesOf(buf);
+      this._evict(file);
       return buf;
     })();
     this.loading.set(file, p);
     try { return await p; } finally { this.loading.delete(file); }
   }
 
-  forget(file) { this.cache.delete(file); }
+  isCached(file) { return this.cache.has(file); }
+
+  _evict(keep) {
+    if (this.cacheBytes <= this.cacheLimit) return;
+    const playing = new Set([...this.voices.values()].map((v) => v.file));
+    for (const [file, buf] of this.cache) {
+      if (this.cacheBytes <= this.cacheLimit) break;
+      if (file === keep || playing.has(file) || this.pinned.has(file)) continue;
+      this.cache.delete(file);
+      this.cacheBytes -= AudioEngine.bytesOf(buf);
+    }
+  }
+
+  setCacheLimit(bytes) { this.cacheLimit = bytes; this._evict(null); }
+
+  forget(file) {
+    const buf = this.cache.get(file);
+    if (buf) this.cacheBytes -= AudioEngine.bytesOf(buf);
+    this.cache.delete(file);
+  }
 
   /** Waveform peaks (0..1) + RMS for normalisation. */
   static analyse(buf, buckets = 96) {
@@ -285,6 +329,7 @@ class AudioEngine {
     const voice = {
       id,
       soundId: sound.id,
+      file: sound.file,
       name: sound.name,
       nodes: [],
       ended: 0,

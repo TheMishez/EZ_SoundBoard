@@ -72,6 +72,7 @@ const DEFAULT_SETTINGS = {
   accent: '#ffd21f',
   padSize: 'm',
   layout: 'grid',         // 'grid' (pads) | 'list' (table)
+  memory: 'balanced',     // audio cache size: 'low' | 'balanced' | 'fast'
   sort: 'manual',
   closeToTray: true,
   setupSeen: false,
@@ -84,6 +85,7 @@ let lib = null;
 let view = { section: 'all', search: '' };
 let editingId = null;
 let hotkeyBackend = 'globalShortcut';
+let hwAccel = true;
 let devices = { inputs: [], outputs: [] };
 let routeOk = { monitor: true, mic: false };
 let micInputOk = true;
@@ -290,6 +292,7 @@ async function setSoundHotkey(id) {
 
 /* ============================== hotkeys ============================== */
 async function syncHotkeys() {
+  applyMemory();
   const b = [];
   for (const s of lib.sounds) if (s.hotkey) b.push({ combo: s.hotkey, action: 'play:' + s.id });
   const hk = S().hotkeys;
@@ -1312,6 +1315,15 @@ async function openSettings(tab = 'routing') {
               <label class="switch"><input type="checkbox" id="s-lim" ${st.limiter ? 'checked' : ''}/><span></span>Limiter on mic output (prevents clipping / distortion)</label>
               <label class="switch"><input type="checkbox" id="s-tray" ${st.closeToTray ? 'checked' : ''}/><span></span>Close button minimizes to tray (hotkeys keep working)</label>
             </div>
+            <label>Memory use <small class="muted">(how much decoded audio stays ready in RAM)</small></label>
+            <div class="radios three" id="s-mem">
+              ${[['low', 'Low', '48 MB · tiny footprint'], ['balanced', 'Balanced', '128 MB · recommended'], ['fast', 'Fast', '512 MB · big libraries']].map(([v, l, d]) => `
+                <button data-mem="${v}" class="${st.memory === v ? 'on' : ''}"><b>${l}</b><small>${d}</small></button>`).join('')}
+            </div>
+            <p class="muted small">Hotkey and favorite sounds always stay ready. Others load in a few milliseconds the first time you play them.</p>
+            <div class="toggles col">
+              <label class="switch"><input type="checkbox" id="s-hwaccel" ${hwAccel ? 'checked' : ''}/><span></span>Hardware acceleration (turn off to save ~50–100 MB on some PCs · restart required)</label>
+            </div>
             <label>Ducking level <small class="muted">(voice volume while sounds play)</small></label>
             <span class="num-wrap"><input type="number" class="num" id="s-ducklvl" min="0" max="100" step="5" value="${Math.round(st.duckLevel * 100)}"/><em>%</em></span>
           </div>
@@ -1364,6 +1376,19 @@ async function openSettings(tab = 'routing') {
     save();
     $$('#s-mode button', el).forEach((x) => x.classList.toggle('on', x === b));
     renderModeSeg();
+  };
+  $('#s-mem', el).onclick = (e) => {
+    const b = e.target.closest('[data-mem]');
+    if (!b) return;
+    st.memory = b.dataset.mem;
+    save();
+    applyMemory();
+    $$('#s-mem button', el).forEach((x) => x.classList.toggle('on', x === b));
+  };
+  $('#s-hwaccel', el).onchange = async (e) => {
+    hwAccel = e.target.checked;
+    await api.setHardwareAcceleration(hwAccel);
+    toast('Restart EZ Soundboard to apply (tray icon → Quit, then open it again)');
   };
   $('#s-lim', el).onchange = (e) => { st.limiter = e.target.checked; save(); applyMixer(); };
   $('#s-tray', el).onchange = (e) => { st.closeToTray = e.target.checked; api.win.setCloseToTray(st.closeToTray); save(); };
@@ -1630,6 +1655,12 @@ function bindEvents() {
   });
 
   window.addEventListener('resize', () => { requestAnimationFrame(drawWaves); drawTrim(); });
+  // Hidden in the tray / minimized: stop the mic level meter (direct mode only needs it for display).
+  document.addEventListener('visibilitychange', () => {
+    if (!isDirect()) return;
+    if (document.hidden) engine.setMicInput(null, false);
+    else applyMicInput();
+  });
   navigator.mediaDevices.addEventListener('devicechange', async () => {
     await refreshDevices();
     await applyRouting();
@@ -1660,6 +1691,7 @@ async function deleteCat(id) {
 /* ============================== animation loop ============================== */
 const meterState = { mon: 0, mic: 0, voice: 0 };
 function frame() {
+  if (document.hidden) { requestAnimationFrame(frame); return; } // nothing to draw while hidden
   // pads progress
   const prog = new Map();
   for (const v of engine.voices.values()) {
@@ -1702,15 +1734,21 @@ function frame() {
 }
 
 /* ============================== boot ============================== */
+const MEMORY_MB = { low: 48, balanced: 128, fast: 512 };
+function applyMemory() {
+  engine.setCacheLimit((MEMORY_MB[S().memory] || 128) * 1024 * 1024);
+  // Sounds you can trigger instantly (hotkeys / favorites) stay decoded.
+  engine.pinned = new Set(lib.sounds.filter((s) => s.hotkey || s.fav).filter((s) => (s.duration || 0) <= 30).map((s) => s.file));
+}
+
 async function preloadBuffers() {
-  // Decode short sounds up front so hotkeys fire instantly. Long ones decode on first play.
-  let budget = 1800; // seconds of audio (~700 MB of decoded PCM max)
-  const order = [...lib.sounds].sort((a, b) => (b.fav - a.fav) || ((b.plays || 0) - (a.plays || 0)));
-  for (const s of order) {
-    if (!s.hotkey && !s.fav && budget < 600) continue;
-    if ((s.duration || 0) > 120) continue;
-    budget -= s.duration || 0;
-    if (budget <= 0) break;
+  // Decode hotkey / favorite sounds up front so they fire instantly; everything else decodes
+  // on first play and is dropped again when the memory budget is reached.
+  applyMemory();
+  const budget = engine.cacheLimit * 0.7;
+  for (const s of lib.sounds) {
+    if (!engine.pinned.has(s.file)) continue;
+    if (engine.cacheBytes > budget) break;
     try { await engine.getBuffer(s.file); } catch { /* missing file */ }
   }
 }
@@ -1736,6 +1774,7 @@ async function boot() {
   if (stored) { lib.categories = stored.categories || []; lib.sounds = stored.sounds || []; lib.recent = stored.recent || []; }
   lib.settings = mergeDeep(DEFAULT_SETTINGS, lib.settings);
   try { hotkeyBackend = await api.hotkeyBackend(); } catch { /* noop */ }
+  try { hwAccel = await api.getHardwareAcceleration(); } catch { /* noop */ }
   try { apoAvail = !!(api.apo && await api.apo.available()); } catch { apoAvail = false; }
   if (api.apo) {
     let t = 0;

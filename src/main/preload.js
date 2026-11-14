@@ -44,5 +44,7 @@ contextBridge.exposeInMainWorld('api', {
     setCloseToTray: (v) => ipcRenderer.send('win:closeToTray', v),
     onMaximized: (cb) => ipcRenderer.on('win:maximized', (_e, v) => cb(v))
   },
-  openExternal: (url) => ipcRenderer.send('app:openExternal', url)
+  openExternal: (url) => ipcRenderer.send('app:openExternal', url),
+  getHardwareAcceleration: () => ipcRenderer.invoke('app:getHwAccel'),
+  setHardwareAcceleration: (on) => ipcRenderer.invoke('app:setHwAccel', on)
 });

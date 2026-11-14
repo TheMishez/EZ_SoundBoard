@@ -580,3 +580,5 @@ body.dropping #drop-overlay { opacity: 1; }
 }
 #grid.list .row.head > span { font: 700 10.5px var(--font); letter-spacing: 0.08em; color: inherit; text-align: left; }
 #grid.list .row.head > span.sorted, #grid.list .row.head > span.sortable:hover { color: var(--text); }
+
+.radios.three { grid-template-columns: repeat(3, 1fr); }
