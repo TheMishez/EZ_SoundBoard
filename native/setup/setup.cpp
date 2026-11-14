@@ -25,7 +25,10 @@
 static const std::wstring MM_CAPTURE = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\";
 static const std::wstring BACKUP_ROOT = L"SOFTWARE\\MishezPad\\ApoBackup";
 static const wchar_t* V_LFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},1";
+static const wchar_t* V_GFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},2";
 static const wchar_t* V_SFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";
+static const wchar_t* V_MFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},6";
+static const wchar_t* V_CMFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},14";
 static const wchar_t* V_CSFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},13";
 // Endpoint effect (EFX): one instance on the mic itself, applied to every app recording it,
 // including apps that record in "raw" mode (Discord / Chromium), which skip stream effects.
@@ -376,6 +379,7 @@ static bool EnhancementsDisabled(const std::wstring& guid) {
 /* ---------------- install / uninstall one mic ---------------- */
 struct Slot { const wchar_t* sub; const wchar_t* name; };
 static const Slot SLOTS[] = { { L"\\FxProperties", V_SFX }, { L"\\FxProperties", V_LFX }, { L"\\FxProperties", V_CSFX },
+                               { L"\\FxProperties", V_GFX }, { L"\\FxProperties", V_MFX }, { L"\\FxProperties", V_CMFX },
                                { L"\\FxProperties", V_EFX }, { L"\\FxProperties", V_CEFX }, { L"\\FxProperties", V_EFX_MODES },
                                { L"\\Properties", V_SYSFX } };
 
@@ -400,6 +404,7 @@ static bool UninstallOn(const std::wstring& guid);
 static bool IsInstalledOn(const std::wstring& guid);
 
 enum class Slot_ { Efx, Sfx, Lfx };
+static bool g_keepEffects = false;
 
 static bool InstallOn(const std::wstring& guid, Slot_ slot) {
     // Start from the mic's original settings (undo any earlier Mishez Pad install first),
@@ -412,6 +417,17 @@ static bool InstallOn(const std::wstring& guid, Slot_ slot) {
     RegVal compS = ReadVal(h, V_CSFX), compE = ReadVal(h, V_CEFX);
     if (h) RegCloseKey(h);
     bool ok = true;
+    // Keep the voice untouched. Our plugin needs Windows "Audio enhancements" switched on, which
+    // would also wake up the default Windows/driver voice effects (AGC, noise suppression...) and
+    // make the mic sound worse. So, like Soundpad, we remove the other effects from the mic: the voice
+    // is passed through exactly as the hardware delivers it and only our sounds are added.
+    // (Everything is backed up and restored on uninstall. --keep-effects keeps them instead.)
+    bool cleanMode = !g_keepEffects;
+    if (cleanMode && slot == Slot_::Efx) {
+        for (const wchar_t* v : { V_LFX, V_GFX, V_SFX, V_MFX, V_CSFX, V_CMFX })
+            ok &= WriteProtected(fx, v, RegVal{});
+        Log(L"removed other mic effects so the voice stays untouched on " + guid);
+    }
     if (slot == Slot_::Efx) {
         ok &= WriteProtected(fx, V_EFX, SzVal(MP_CLSID_STR));
         if (compE.exists) ok &= WriteProtected(fx, V_CEFX, SzVal(MP_CLSID_STR, REG_MULTI_SZ));
@@ -510,6 +526,7 @@ int wmain(int argc, wchar_t** argv) {
         else if (a == L"--legacy") slot = Slot_::Lfx;
         else if (a == L"--sfx") slot = Slot_::Sfx;
         else if (a == L"--efx") slot = Slot_::Efx;
+        else if (a == L"--keep-effects") g_keepEffects = true;
         else if (a == L"--enable" && i + 1 < argc) { auto v = Split(argv[++i]); enable.insert(enable.end(), v.begin(), v.end()); }
         else if (a == L"--disable" && i + 1 < argc) { auto v = Split(argv[++i]); disable.insert(disable.end(), v.begin(), v.end()); }
         else targets.push_back(a);
