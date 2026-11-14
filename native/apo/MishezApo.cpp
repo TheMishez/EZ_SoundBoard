@@ -22,6 +22,14 @@
 // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
 static const GUID MP_SUBTYPE_FLOAT = { 0x00000003, 0x0000, 0x0010, { 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71 } };
 
+static void DebugGuid(const wchar_t* what, REFGUID g, long long v = 0) {
+    wchar_t gs[64];
+    StringFromGUID2(g, gs, 64);
+    wchar_t m[200];
+    swprintf_s(m, 200, L"%s %s ->", what, gs);
+    mpDebug(L"apo", m, v);
+}
+
 static volatile LONG g_objects = 0;
 static volatile LONG g_locks = 0;
 
@@ -59,14 +67,40 @@ class MishezApo final :
     public IAudioProcessingObjectConfiguration,
     public IAudioSystemEffects2 {
 public:
-    MishezApo() { InterlockedIncrement(&g_objects); mpDebug(L"apo", L"object created", 0); }
+    // The audio engine creates APOs *aggregated* (it passes an outer IUnknown), exactly like
+    // Microsoft's SwapAPO sample. So we implement the standard COM aggregation pattern:
+    // a private "inner" IUnknown owns the reference count, and the IUnknown methods on our
+    // public interfaces delegate to the outer object (or to the inner one when not aggregated).
+    explicit MishezApo(IUnknown* outer) {
+        InterlockedIncrement(&g_objects);
+        m_inner.self = this;
+        m_outer = outer ? outer : static_cast<IUnknown*>(&m_inner);
+        mpDebug(L"apo", outer ? L"object created (aggregated)" : L"object created", 0);
+    }
     ~MishezApo() { CloseShared(); InterlockedDecrement(&g_objects); }
 
-    // ---------- IUnknown ----------
-    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+    struct Inner : public IUnknown {
+        MishezApo* self = nullptr;
+        STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override { return self->NDQueryInterface(riid, ppv); }
+        STDMETHODIMP_(ULONG) AddRef() override { return (ULONG)InterlockedIncrement(&self->m_ref); }
+        STDMETHODIMP_(ULONG) Release() override {
+            LONG r = InterlockedDecrement(&self->m_ref);
+            if (r == 0) delete self;
+            return (ULONG)r;
+        }
+    };
+    Inner m_inner;
+    IUnknown* m_outer = nullptr;
+
+    HRESULT NDQueryInterface(REFIID riid, void** ppv) {
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IAudioProcessingObject))
+        if (riid == __uuidof(IUnknown)) {
+            *ppv = static_cast<IUnknown*>(&m_inner);
+            m_inner.AddRef();
+            return S_OK;
+        }
+        if (riid == __uuidof(IAudioProcessingObject))
             *ppv = static_cast<IAudioProcessingObject*>(this);
         else if (riid == __uuidof(IAudioProcessingObjectRT))
             *ppv = static_cast<IAudioProcessingObjectRT*>(this);
@@ -82,15 +116,14 @@ public:
             mpDebug(L"apo", m, 0);
             return E_NOINTERFACE;
         }
-        AddRef();
+        static_cast<IUnknown*>(*ppv)->AddRef(); // delegates to the outer object
         return S_OK;
     }
-    STDMETHODIMP_(ULONG) AddRef() override { return (ULONG)InterlockedIncrement(&m_ref); }
-    STDMETHODIMP_(ULONG) Release() override {
-        LONG r = InterlockedDecrement(&m_ref);
-        if (r == 0) delete this;
-        return (ULONG)r;
-    }
+
+    // ---------- IUnknown (delegating) ----------
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override { return m_outer->QueryInterface(riid, ppv); }
+    STDMETHODIMP_(ULONG) AddRef() override { return m_outer->AddRef(); }
+    STDMETHODIMP_(ULONG) Release() override { return m_outer->Release(); }
 
     // ---------- IAudioProcessingObject ----------
     STDMETHODIMP Reset() override { m_synced = false; return S_OK; }
@@ -323,6 +356,7 @@ public:
             return S_OK;
         }
         *ppv = nullptr;
+        DebugGuid(L"factory QI not supported", riid, (long long)(unsigned long)E_NOINTERFACE);
         return E_NOINTERFACE;
     }
     STDMETHODIMP_(ULONG) AddRef() override { return 2; }   // static object
@@ -330,11 +364,13 @@ public:
     STDMETHODIMP CreateInstance(IUnknown* outer, REFIID riid, void** ppv) override {
         if (!ppv) return E_POINTER;
         *ppv = nullptr;
-        if (outer) return CLASS_E_NOAGGREGATION;
-        auto* apo = new (std::nothrow) MishezApo();
+        DebugGuid(outer ? L"CreateInstance (aggregated) for" : L"CreateInstance for", riid, 0);
+        if (outer && riid != __uuidof(IUnknown)) return CLASS_E_NOAGGREGATION;
+        auto* apo = new (std::nothrow) MishezApo(outer);
         if (!apo) return E_OUTOFMEMORY;
-        HRESULT hr = apo->QueryInterface(riid, ppv);
-        apo->Release();
+        HRESULT hr = apo->NDQueryInterface(riid, ppv);
+        apo->m_inner.Release(); // drop the creation reference
+        mpDebug(L"apo", L"CreateInstance result", (long long)(unsigned long)hr);
         return hr;
     }
     STDMETHODIMP LockServer(BOOL lock) override {
@@ -348,9 +384,15 @@ static Factory g_factory;
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
-    mpDebug(L"apo", L"DllGetClassObject called", 0);
-    if (!IsEqualCLSID(rclsid, CLSID_MishezPadApo)) return CLASS_E_CLASSNOTAVAILABLE;
-    return g_factory.QueryInterface(riid, ppv);
+    DebugGuid(L"DllGetClassObject clsid", rclsid, 0);
+    DebugGuid(L"DllGetClassObject iid", riid, 0);
+    if (!IsEqualCLSID(rclsid, CLSID_MishezPadApo)) {
+        mpDebug(L"apo", L"wrong CLSID, refusing", 0);
+        return CLASS_E_CLASSNOTAVAILABLE;
+    }
+    HRESULT hr = g_factory.QueryInterface(riid, ppv);
+    mpDebug(L"apo", L"DllGetClassObject result", (long long)(unsigned long)hr);
+    return hr;
 }
 
 STDAPI DllCanUnloadNow() {
