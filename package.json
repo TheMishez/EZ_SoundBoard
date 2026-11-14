@@ -2,7 +2,7 @@
   "name": "mishez-pad",
   "productName": "Mishez Pad",
   "version": "1.0.0",
-  "description": "A modern soundboard that plays sounds through your microphone \u2014 with global hotkeys, auto push-to-talk, mic passthrough and per-sound trimming.",
+  "description": "A modern soundboard that plays sounds through your microphone — with global hotkeys, auto push-to-talk, mic passthrough and per-sound trimming.",
   "main": "src/main/main.js",
   "author": "EZGGco",
   "license": "UNLICENSED",
@@ -20,9 +20,9 @@
   },
   "build": {
     "appId": "com.ezggco.mishezpad",
-   "productName": "Mishez Pad",
-   "npmRebuild": false,
-   "files": [
+    "productName": "Mishez Pad",
+    "npmRebuild": false,
+    "files": [
       "src/**/*",
       "assets/**/*",
       "package.json"

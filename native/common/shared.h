@@ -7,10 +7,16 @@
 // sound - unlike Soundpad, overlapping sounds and multiple voice apps are no problem.
 #pragma once
 #include <windows.h>
+#include <sddl.h>
+#include <shlobj.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
-#define MP_MAP_NAME      L"Global\\MishezPadMicMix_v1"
+// Shared buffer = a small file in %ProgramData%\MishezPad mapped into memory by both sides.
+// (A named "Global\\" section can't be shared between Windows' protected audio service and a
+// normal app, but a file with an open ACL can - and views of the same file are coherent.)
+#define MP_FILE_SDDL     L"D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;LS)(A;;FA;;;NS)(A;;FA;;;WD)(A;;FA;;;AC)(A;;FA;;;S-1-15-2-2)"
 #define MP_MAGIC         0x4D504144u   // 'MPAD'
 #define MP_VERSION       1u
 #define MP_RATE          48000
@@ -32,7 +38,10 @@ struct MPShared {
     volatile LONG   apoRate;       // info: sample rate the mic runs at
     volatile LONG   apoChannels;   // info: mic channel count
     volatile LONG   apoInstances;  // info: plugin instances currently processing
-    uint32_t reserved[16];
+    volatile LONG64 apoLoadTick;   // info: last time the plugin was created/initialized
+    volatile LONG   apoLocks;      // info: total successful LockForProcess calls
+    volatile LONG   apoLastHr;     // info: last LockForProcess result
+    uint32_t reserved[12];
     float ring[MP_RING_FRAMES * 2];
 };
 #pragma pack(pop)
@@ -40,3 +49,69 @@ struct MPShared {
 static inline LONG64 mpLoad64(volatile LONG64* p) { return InterlockedCompareExchange64(p, 0, 0); }
 static inline float mpBitsToFloat(LONG b) { float f; memcpy(&f, &b, 4); return f; }
 static inline LONG mpFloatToBits(float f) { LONG b; memcpy(&b, &f, 4); return b; }
+
+static inline bool mpPaths(wchar_t* dir, size_t dn, wchar_t* file, size_t fn) {
+    PWSTR pd = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &pd)) || !pd) return false;
+    swprintf_s(dir, dn, L"%s\\MishezPad", pd);
+    swprintf_s(file, fn, L"%s\\MishezPad\\mixbuffer.bin", pd);
+    CoTaskMemFree(pd);
+    return true;
+}
+
+// Opens (or creates) the shared buffer. Returns nullptr on failure; *err gets GetLastError().
+static inline MPShared* mpOpenShared(HANDLE* fileOut, HANDLE* mapOut, DWORD* err) {
+    *fileOut = nullptr;
+    *mapOut = nullptr;
+    if (err) *err = 0;
+    wchar_t dir[MAX_PATH], path[MAX_PATH];
+    if (!mpPaths(dir, MAX_PATH, path, MAX_PATH)) { if (err) *err = ERROR_PATH_NOT_FOUND; return nullptr; }
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    ConvertStringSecurityDescriptorToSecurityDescriptorW(MP_FILE_SDDL, SDDL_REVISION_1, &sd, nullptr);
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), sd, FALSE };
+    CreateDirectoryW(dir, sd ? &sa : nullptr);
+    HANDLE f = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           sd ? &sa : nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_TEMPORARY, nullptr);
+    DWORD e = GetLastError();
+    if (sd) LocalFree(sd);
+    if (f == INVALID_HANDLE_VALUE) { if (err) *err = e; return nullptr; }
+    HANDLE m = CreateFileMappingW(f, nullptr, PAGE_READWRITE, 0, (DWORD)sizeof(MPShared), nullptr);
+    if (!m) { if (err) *err = GetLastError(); CloseHandle(f); return nullptr; }
+    MPShared* s = static_cast<MPShared*>(MapViewOfFile(m, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, sizeof(MPShared)));
+    if (!s) { if (err) *err = GetLastError(); CloseHandle(m); CloseHandle(f); return nullptr; }
+    if (s->magic != MP_MAGIC) {
+        InterlockedExchange(&s->voiceGainBits, mpFloatToBits(1.0f));
+        s->version = MP_VERSION;
+        MemoryBarrier();
+        s->magic = MP_MAGIC;
+    }
+    *fileOut = f;
+    *mapOut = m;
+    return s;
+}
+static inline void mpCloseShared(MPShared* s, HANDLE f, HANDLE m) {
+    if (s) UnmapViewOfFile(s);
+    if (m) CloseHandle(m);
+    if (f) CloseHandle(f);
+}
+
+// Small diagnostic log next to the buffer (never called from the realtime audio path).
+static inline void mpLog(const wchar_t* who, const wchar_t* msg, long long v) {
+    wchar_t dir[MAX_PATH], path[MAX_PATH];
+    if (!mpPaths(dir, MAX_PATH, path, MAX_PATH)) return;
+    wchar_t logp[MAX_PATH];
+    swprintf_s(logp, MAX_PATH, L"%s\\%s.log", dir, who);
+    HANDLE h = CreateFileW(logp, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER sz;
+    if (GetFileSizeEx(h, &sz) && sz.QuadPart > 512 * 1024) { CloseHandle(h); DeleteFileW(logp); return; }
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    char line[512];
+    int n = sprintf_s(line, "%04d-%02d-%02d %02d:%02d:%02d [pid %lu] %ls %lld\r\n", t.wYear, t.wMonth, t.wDay, t.wHour,
+                      t.wMinute, t.wSecond, GetCurrentProcessId(), msg, v);
+    DWORD w;
+    if (n > 0) WriteFile(h, line, (DWORD)n, &w, nullptr);
+    CloseHandle(h);
+}
+

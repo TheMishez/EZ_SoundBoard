@@ -1,5 +1,6 @@
 'use strict';
 /* global Keys, AudioEngine */
+// `api` is the global that preload.js exposes (window.api) - don't redeclare it.
 const engine = new AudioEngine();
 
 /* ============================== icons ============================== */
@@ -468,7 +469,21 @@ function renderMixer() {
     </div>`;
 }
 
+function apoDiagText() {
+  const st = apoStatus || {};
+  const parts = [];
+  parts.push(st.mapped ? 'buffer ok' : `buffer not open${st.openErr ? ' (error ' + st.openErr + ')' : ''}`);
+  parts.push(st.loadAgeMs >= 0 ? 'plugin loaded' : 'plugin not seen yet');
+  parts.push(st.apoAgeMs >= 0 && st.apoAgeMs < 1500 ? `processing in ${st.instances || 1} app(s) @ ${st.rate} Hz / ${st.channels} ch` : 'not processing');
+  if (st.locks) parts.push(`locks ${st.locks}`);
+  if (st.lastHr) parts.push(`last result 0x${(st.lastHr >>> 0).toString(16)}`);
+  parts.push(`sent ${Math.round((st.framesIn || 0) / 48000)} s of audio`);
+  return parts.join(' · ');
+}
+
 function renderRoute() {
+  const diag = document.getElementById('apo-diag');
+  if (diag) diag.textContent = 'Diagnostics: ' + apoDiagText();
   const pill = $('#route-pill');
   if (isDirect()) {
     const mics = defaultMics();
@@ -1076,6 +1091,7 @@ function renderRoutingPane(pane) {
           <label class="switch"><input type="checkbox" id="s-duck" ${st.duck ? 'checked' : ''}/><span></span>Lower my voice while a sound plays (set to 0% in Playback to block it)</label>
         </div>
         <p class="muted small">Discord: if sounds get cut off, turn off <b>Krisp / noise suppression</b> in Voice &amp; Video. Most games and apps already use your default mic, so nothing else changes.</p>
+        <p class="diag small" id="apo-diag">Diagnostics: ${esc(apoDiagText())}</p>
       </div>`;
   } else {
     body = `
@@ -1627,7 +1643,7 @@ async function boot() {
     api.apo.onStatus((st) => {
       const wasLive = apoLive();
       apoStatus = st;
-      if (wasLive !== apoLive() || performance.now() - t > 3000) { t = performance.now(); renderRoute(); }
+      if (wasLive !== apoLive() || document.getElementById('apo-diag') || performance.now() - t > 3000) { t = performance.now(); renderRoute(); }
     });
   }
   applyAccent();

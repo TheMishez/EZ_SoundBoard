@@ -525,3 +525,4 @@ body.dropping #drop-overlay { opacity: 1; }
 .mic-ask .modal-actions { justify-content: center; }
 .mic-ask .switch { justify-content: center; margin-top: 6px; color: var(--muted); }
 .mic-ask p b { color: var(--text); }
+.diag { font: 11px var(--mono); color: var(--muted); padding: 8px 10px; border-radius: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--line); user-select: text; }

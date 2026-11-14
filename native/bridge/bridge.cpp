@@ -18,39 +18,48 @@ static volatile LONG g_voiceBits = 0;
 static volatile LONG g_running = 1;
 static volatile LONG64 g_framesIn = 0;
 
+static HANDLE g_file = nullptr;
+static DWORD g_openErr = 0;
 static bool TryOpen() {
     if (g_sh) return true;
-    HANDLE m = OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, MP_MAP_NAME);
-    if (!m) return false;
-    auto* sh = static_cast<MPShared*>(MapViewOfFile(m, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, sizeof(MPShared)));
+    HANDLE f = nullptr, m = nullptr;
+    DWORD err = 0;
+    MPShared* sh = mpOpenShared(&f, &m, &err);
     if (!sh) {
-        CloseHandle(m);
+        if (err != g_openErr) mpLog(L"bridge", L"could not open shared buffer, error", (long long)err);
+        g_openErr = err;
         return false;
     }
+    g_file = f;
     g_map = m;
     g_sh = sh;
     if (g_voiceBits) InterlockedExchange(&sh->voiceGainBits, g_voiceBits);
+    mpLog(L"bridge", L"shared buffer open", 0);
     return true;
 }
 
-// The mapping only exists once Windows has loaded the plugin (i.e. some app is using the mic),
-// so keep retrying in the background. Also prints status for the app.
+// Keeps retrying to open the buffer in the background and prints status for the app.
 static DWORD WINAPI StatusThread(LPVOID) {
     while (g_running) {
         TryOpen();
         MPShared* s = g_sh;
-        long long apoAge = -1;
-        long rate = 0, chans = 0, inst = 0;
+        long long apoAge = -1, loadAge = -1;
+        long rate = 0, chans = 0, inst = 0, locks = 0, lastHr = 0;
         if (s && s->magic == MP_MAGIC) {
-            LONG64 t = mpLoad64(&s->apoTick);
-            ULONGLONG now = GetTickCount64();
-            if (t) apoAge = (long long)(now - (ULONGLONG)t);
+            const ULONGLONG now = GetTickCount64();
+            const LONG64 t = mpLoad64(&s->apoTick);
+            const LONG64 l = mpLoad64(&s->apoLoadTick);
+            if (t > 0 && (ULONGLONG)t <= now) apoAge = (long long)(now - (ULONGLONG)t);
+            if (l > 0 && (ULONGLONG)l <= now) loadAge = (long long)(now - (ULONGLONG)l);
             rate = s->apoRate;
             chans = s->apoChannels;
             inst = s->apoInstances;
+            locks = s->apoLocks;
+            lastHr = s->apoLastHr;
         }
-        printf("{\"mapped\":%s,\"apoAgeMs\":%lld,\"rate\":%ld,\"channels\":%ld,\"instances\":%ld,\"framesIn\":%lld}\n",
-               s ? "true" : "false", apoAge, rate, chans, inst, (long long)g_framesIn);
+        printf("{\"mapped\":%s,\"openErr\":%lu,\"apoAgeMs\":%lld,\"loadAgeMs\":%lld,\"rate\":%ld,\"channels\":%ld,"
+               "\"instances\":%ld,\"locks\":%ld,\"lastHr\":%ld,\"framesIn\":%lld}\n",
+               s ? "true" : "false", g_openErr, apoAge, loadAge, rate, chans, inst, locks, lastHr, (long long)g_framesIn);
         fflush(stdout);
         Sleep(500);
     }
@@ -109,7 +118,6 @@ int main() {
     if (g_sh) InterlockedExchange(&g_sh->voiceGainBits, mpFloatToBits(1.0f));
     InterlockedExchange(&g_running, 0);
     if (th) WaitForSingleObject(th, 1000);
-    if (g_sh) UnmapViewOfFile(g_sh);
-    if (g_map) CloseHandle(g_map);
+    mpCloseShared(g_sh, g_file, g_map);
     return 0;
 }

@@ -50,7 +50,7 @@ Option B (on your PC):
 |---|---|
 | `MishezPadApo.dll` | The mic plugin. Passes your voice through and adds the sound mix from shared memory. |
 | `mishez-bridge.exe` | Started by the app. Streams the app's sound mix into shared memory. |
-| `mishez-apo-setup.exe` | Enables or disables the plugin on mics (`list`, `install default`, `uninstall all`). It backs up the original mic settings first and restarts Windows Audio. Log: `%ProgramData%\MishezPad\setup.log` |
+| `mishez-apo-setup.exe` | Enables or disables the plugin on mics (`list`, `install default`, `uninstall all`). It backs up the original mic settings first and restarts Windows Audio. Logs: `%ProgramData%\MishezPad\` (setup.log, apo.log, bridge.log) |
 
 ### Troubleshooting direct mode
 - **Settings → Microphone shows "Ready" but never "Good":** no app is recording that mic. Open Discord's mic test, or check that the right mic is the Windows default.

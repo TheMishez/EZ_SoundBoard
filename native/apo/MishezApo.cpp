@@ -7,7 +7,6 @@
 
 #include <windows.h>
 #include <unknwn.h>
-#include <sddl.h>
 #include <audioenginebaseapo.h>
 #include <audiomediatype.h>
 #include <new>
@@ -115,7 +114,12 @@ public:
         *ppRegProps = p;
         return S_OK;
     }
-    STDMETHODIMP Initialize(UINT32, BYTE*) override { return S_OK; }
+    STDMETHODIMP Initialize(UINT32 cb, BYTE*) override {
+        OpenShared();
+        if (m_sh) InterlockedExchange64(&m_sh->apoLoadTick, (LONG64)GetTickCount64());
+        mpLog(L"apo", m_sh ? L"initialized, shared buffer ok, init bytes" : L"initialized WITHOUT shared buffer, init bytes", (long long)cb);
+        return S_OK;
+    }
     STDMETHODIMP IsInputFormatSupported(IAudioMediaType* opp, IAudioMediaType* req, IAudioMediaType** sup) override {
         return CheckFormat(opp, req, sup);
     }
@@ -131,6 +135,16 @@ public:
     // ---------- IAudioProcessingObjectConfiguration ----------
     STDMETHODIMP LockForProcess(UINT32 nIn, APO_CONNECTION_DESCRIPTOR** ppIn,
                                 UINT32 nOut, APO_CONNECTION_DESCRIPTOR** ppOut) override {
+        HRESULT hr = DoLock(nIn, ppIn, nOut, ppOut);
+        if (m_sh) {
+            InterlockedExchange(&m_sh->apoLastHr, (LONG)hr);
+            if (SUCCEEDED(hr)) InterlockedIncrement(&m_sh->apoLocks);
+        }
+        mpLog(L"apo", SUCCEEDED(hr) ? L"locked for processing, rate" : L"LOCK FAILED, hr", SUCCEEDED(hr) ? (long long)m_rate : (long long)(unsigned long)hr);
+        if (SUCCEEDED(hr)) mpLog(L"apo", L"channels", (long long)m_channels);
+        return hr;
+    }
+    HRESULT DoLock(UINT32 nIn, APO_CONNECTION_DESCRIPTOR** ppIn, UINT32 nOut, APO_CONNECTION_DESCRIPTOR** ppOut) {
         if (m_locked) return APOERR_APO_LOCKED;
         if (nIn < 1 || nOut < 1 || !ppIn || !ppIn[0] || !ppIn[0]->pFormat || !ppOut || !ppOut[0]) return E_INVALIDARG;
         UNCOMPRESSEDAUDIOFORMAT fmt = {};
@@ -140,7 +154,7 @@ public:
         m_synced = false;
         m_voice = 1.0f;
         OpenShared();
-        if (m_sh) {
+        if (m_sh && !m_counted) {
             InterlockedExchange(&m_sh->apoRate, (LONG)m_rate);
             InterlockedExchange(&m_sh->apoChannels, (LONG)m_channels);
             InterlockedIncrement(&m_sh->apoInstances);
@@ -152,7 +166,8 @@ public:
     STDMETHODIMP UnlockForProcess() override {
         if (!m_locked) return S_OK;
         m_locked = false;
-        CloseShared();
+        if (m_sh && m_counted) InterlockedDecrement(&m_sh->apoInstances);
+        m_counted = false;
         return S_OK;
     }
 
@@ -257,41 +272,20 @@ public:
 private:
     void OpenShared() {
         if (m_sh) return;
-        PSECURITY_DESCRIPTOR sd = nullptr;
-        // SYSTEM, LocalService (audiodg), Administrators: full. Interactive + authenticated users: read/write.
-        ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            L"D:(A;;GA;;;SY)(A;;GA;;;LS)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GRGW;;;AU)",
-            SDDL_REVISION_1, &sd, nullptr);
-        SECURITY_ATTRIBUTES sa = { sizeof(sa), sd, FALSE };
-        m_map = CreateFileMappingW(INVALID_HANDLE_VALUE, sd ? &sa : nullptr, PAGE_READWRITE,
-                                   0, (DWORD)sizeof(MPShared), MP_MAP_NAME);
-        const DWORD err = GetLastError();
-        if (sd) LocalFree(sd);
-        if (!m_map) return;
-        m_sh = static_cast<MPShared*>(MapViewOfFile(m_map, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MPShared)));
-        if (!m_sh) {
-            CloseHandle(m_map);
-            m_map = nullptr;
-            return;
-        }
-        if (err != ERROR_ALREADY_EXISTS || m_sh->magic != MP_MAGIC) {
-            InterlockedExchange(&m_sh->voiceGainBits, mpFloatToBits(1.0f));
-            m_sh->version = MP_VERSION;
-            MemoryBarrier();
-            m_sh->magic = MP_MAGIC;
+        DWORD err = 0;
+        m_sh = mpOpenShared(&m_file, &m_map, &err);
+        if (!m_sh && !m_loggedFail) {
+            mpLog(L"apo", L"could not open shared buffer, error", (long long)err);
+            m_loggedFail = true;
         }
     }
     void CloseShared() {
-        if (m_sh) {
-            if (m_counted) InterlockedDecrement(&m_sh->apoInstances);
-            m_counted = false;
-            UnmapViewOfFile(m_sh);
-            m_sh = nullptr;
-        }
-        if (m_map) {
-            CloseHandle(m_map);
-            m_map = nullptr;
-        }
+        if (m_sh && m_counted) InterlockedDecrement(&m_sh->apoInstances);
+        m_counted = false;
+        mpCloseShared(m_sh, m_file, m_map);
+        m_sh = nullptr;
+        m_file = nullptr;
+        m_map = nullptr;
     }
 
     volatile LONG m_ref = 1;
@@ -300,6 +294,8 @@ private:
     UINT32 m_channels = 2;
     float m_rate = 48000.0f;
     HANDLE m_map = nullptr;
+    HANDLE m_file = nullptr;
+    bool m_loggedFail = false;
     MPShared* m_sh = nullptr;
     double m_readPos = 0.0;
     bool m_synced = false;

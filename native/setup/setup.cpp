@@ -201,6 +201,31 @@ static bool WriteProtected(const std::wstring& path, const wchar_t* name, const 
     return r == ERROR_SUCCESS;
 }
 
+/* ---------------- shared buffer file ---------------- */
+// Pre-create %ProgramData%\MishezPad and the shared buffer with an ACL that both the Windows
+// audio service (where the plugin runs) and the normal-user app can read/write.
+static bool EnsureSharedFile() {
+    wchar_t dir[MAX_PATH], path[MAX_PATH];
+    if (!mpPaths(dir, MAX_PATH, path, MAX_PATH)) return false;
+    CreateDirectoryW(dir, nullptr);
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(MP_FILE_SDDL, SDDL_REVISION_1, &sd, nullptr)) {
+        SetFileSecurityW(dir, DACL_SECURITY_INFORMATION, sd);
+        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) SetFileSecurityW(path, DACL_SECURITY_INFORMATION, sd);
+        LocalFree(sd);
+    }
+    HANDLE f = nullptr, m = nullptr;
+    DWORD err = 0;
+    MPShared* sh = mpOpenShared(&f, &m, &err);
+    if (!sh) {
+        Log(L"could not create shared buffer, error " + std::to_wstring(err));
+        return false;
+    }
+    mpCloseShared(sh, f, m);
+    Log(L"shared buffer ready");
+    return true;
+}
+
 /* ---------------- COM / APO registration ---------------- */
 static bool SetStr(const std::wstring& path, const wchar_t* name, const std::wstring& val) {
     HKEY h = nullptr;
@@ -241,6 +266,7 @@ static bool RegisterPlugin() {
     ok &= WriteVal(h, L"APOInterface0", SzVal(iid)) == ERROR_SUCCESS;
     RegCloseKey(h);
     Log(ok ? L"registered plugin" : L"plugin registration incomplete");
+    EnsureSharedFile();
     return ok;
 }
 static void UnregisterPlugin() {
