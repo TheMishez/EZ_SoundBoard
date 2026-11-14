@@ -20,8 +20,9 @@
   },
   "build": {
     "appId": "com.ezggco.mishezpad",
-    "productName": "Mishez Pad",
-    "files": [
+   "productName": "Mishez Pad",
+   "npmRebuild": false,
+   "files": [
       "src/**/*",
       "assets/**/*",
       "package.json"
