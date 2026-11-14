@@ -133,6 +133,7 @@ public:
         return S_OK;
     }
     STDMETHODIMP GetRegistrationProperties(APO_REG_PROPERTIES** ppRegProps) override {
+        mpDebug(L"apo", L"GetRegistrationProperties called", 0);
         if (!ppRegProps) return E_POINTER;
         auto* p = static_cast<APO_REG_PROPERTIES*>(CoTaskMemAlloc(sizeof(APO_REG_PROPERTIES)));
         if (!p) return E_OUTOFMEMORY;
@@ -153,7 +154,12 @@ public:
         *ppRegProps = p;
         return S_OK;
     }
-    STDMETHODIMP Initialize(UINT32 cb, BYTE*) override {
+    STDMETHODIMP Initialize(UINT32 cb, BYTE* data) override {
+        if (data && cb >= sizeof(APOInitSystemEffects2)) {
+            auto* init = reinterpret_cast<APOInitSystemEffects2*>(data);
+            DebugGuid(L"init: processing mode", init->AudioProcessingMode, 0);
+            mpDebug(L"apo", L"init: discovery only =", (long long)init->InitializeForDiscoveryOnly);
+        }
         OpenShared();
         if (m_sh) InterlockedExchange64(&m_sh->apoLoadTick, (LONG64)GetTickCount64());
         mpLog(L"apo", m_sh ? L"initialized, shared buffer ok, init bytes" : L"initialized WITHOUT shared buffer, init bytes", (long long)cb);
@@ -218,6 +224,7 @@ public:
     STDMETHODIMP_(void) APOProcess(UINT32 nIn, APO_CONNECTION_PROPERTY** ppIn,
                                    UINT32 nOut, APO_CONNECTION_PROPERTY** ppOut) override {
         if (nIn < 1 || nOut < 1 || !ppIn[0] || !ppOut[0]) return;
+        if (!m_loggedProcess) { m_loggedProcess = true; mpDebug(L"apo", L"FIRST AUDIO PROCESSED, frames", (long long)ppIn[0]->u32ValidFrameCount); }
         APO_CONNECTION_PROPERTY* in = ppIn[0];
         APO_CONNECTION_PROPERTY* out = ppOut[0];
         const UINT32 frames = in->u32ValidFrameCount;
@@ -306,6 +313,7 @@ public:
 
     // ---------- IAudioSystemEffects2 ----------
     STDMETHODIMP GetEffectsList(LPGUID* ppEffectsIds, UINT* pcEffects, HANDLE) override {
+        mpDebug(L"apo", L"GetEffectsList called", 0);
         if (!ppEffectsIds || !pcEffects) return E_POINTER;
         *ppEffectsIds = nullptr;
         *pcEffects = 0;
@@ -339,6 +347,7 @@ private:
     HANDLE m_map = nullptr;
     HANDLE m_file = nullptr;
     bool m_loggedFail = false;
+    bool m_loggedProcess = false;
     MPShared* m_sh = nullptr;
     double m_readPos = 0.0;
     bool m_synced = false;

@@ -5,7 +5,7 @@
 //   mishez-apo-setup uninstall all|<guid>...       (admin)    restore mics exactly as they were
 //   mishez-apo-setup apply --enable a,b --disable c (admin)   used by the app's Microphones tab
 //   mishez-apo-setup restart                       (admin)    restart Windows Audio
-// Flags: --no-restart, --unregister (with uninstall all), --legacy (use LFX slot instead of SFX)
+// Flags: --no-restart, --unregister (with uninstall all), --efx (default) | --sfx | --legacy (effect slot)
 //
 // What "install" does (same idea as Soundpad / Equalizer APO):
 //  1. registers MishezPadApo.dll as a COM class + audio processing object
@@ -27,6 +27,14 @@ static const std::wstring BACKUP_ROOT = L"SOFTWARE\\MishezPad\\ApoBackup";
 static const wchar_t* V_LFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},1";
 static const wchar_t* V_SFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";
 static const wchar_t* V_CSFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},13";
+// Endpoint effect (EFX): one instance on the mic itself, applied to every app recording it,
+// including apps that record in "raw" mode (Discord / Chromium), which skip stream effects.
+static const wchar_t* V_EFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},7";
+static const wchar_t* V_CEFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},15";
+static const wchar_t* V_EFX_MODES = L"{d3993a3f-99c2-4402-b5ec-a92a0367664b},7";
+static const wchar_t* MODE_DEFAULT = L"{C18E2F7E-933D-4965-B7D1-1EEF228D2AF3}";
+static const wchar_t* MODE_RAW = L"{9E90EA20-B493-4FD1-A1A8-7E1361A956CF}";
+static const wchar_t* MODE_COMMS = L"{98951333-B9CD-48B1-A0A3-FF40682D73F7}";
 static const wchar_t* V_SYSFX = L"{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},5";
 static const PROPERTYKEY MP_PKEY_FriendlyName = { { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
 
@@ -130,6 +138,16 @@ static RegVal SzVal(const std::wstring& s, DWORD type = REG_SZ) {
     std::wstring z = s;
     z.push_back(L'\0');
     if (type == REG_MULTI_SZ) z.push_back(L'\0');
+    v.data.assign(reinterpret_cast<const BYTE*>(z.data()), reinterpret_cast<const BYTE*>(z.data() + z.size()));
+    return v;
+}
+static RegVal MultiSzVal(const std::vector<std::wstring>& items) {
+    RegVal v;
+    v.exists = true;
+    v.type = REG_MULTI_SZ;
+    std::wstring z;
+    for (const auto& it : items) { z += it; z.push_back(L'\0'); }
+    z.push_back(L'\0');
     v.data.assign(reinterpret_cast<const BYTE*>(z.data()), reinterpret_cast<const BYTE*>(z.data() + z.size()));
     return v;
 }
@@ -342,7 +360,8 @@ static bool IsInstalledOn(const std::wstring& guid) {
     HKEY h = OpenRead(MM_CAPTURE + guid + L"\\FxProperties");
     if (!h) return false;
     bool r = IEq(ValStr(ReadVal(h, V_SFX)), MP_CLSID_STR) || IEq(ValStr(ReadVal(h, V_LFX)), MP_CLSID_STR) ||
-             IEq(ValStr(ReadVal(h, V_CSFX)), MP_CLSID_STR);
+             IEq(ValStr(ReadVal(h, V_CSFX)), MP_CLSID_STR) || IEq(ValStr(ReadVal(h, V_EFX)), MP_CLSID_STR) ||
+             IEq(ValStr(ReadVal(h, V_CEFX)), MP_CLSID_STR);
     RegCloseKey(h);
     return r;
 }
@@ -356,7 +375,9 @@ static bool EnhancementsDisabled(const std::wstring& guid) {
 
 /* ---------------- install / uninstall one mic ---------------- */
 struct Slot { const wchar_t* sub; const wchar_t* name; };
-static const Slot SLOTS[] = { { L"\\FxProperties", V_SFX }, { L"\\FxProperties", V_LFX }, { L"\\FxProperties", V_CSFX }, { L"\\Properties", V_SYSFX } };
+static const Slot SLOTS[] = { { L"\\FxProperties", V_SFX }, { L"\\FxProperties", V_LFX }, { L"\\FxProperties", V_CSFX },
+                               { L"\\FxProperties", V_EFX }, { L"\\FxProperties", V_CEFX }, { L"\\FxProperties", V_EFX_MODES },
+                               { L"\\Properties", V_SYSFX } };
 
 static void SaveBackup(const std::wstring& guid) {
     std::wstring bk = BACKUP_ROOT + L"\\" + guid;
@@ -375,19 +396,36 @@ static void SaveBackup(const std::wstring& guid) {
     RegCloseKey(b);
 }
 
-static bool InstallOn(const std::wstring& guid, bool legacy) {
+static bool UninstallOn(const std::wstring& guid);
+static bool IsInstalledOn(const std::wstring& guid);
+
+enum class Slot_ { Efx, Sfx, Lfx };
+
+static bool InstallOn(const std::wstring& guid, Slot_ slot) {
+    // Start from the mic's original settings (undo any earlier Mishez Pad install first),
+    // so switching slots never leaves the plugin in two places.
+    if (IsInstalledOn(guid)) UninstallOn(guid);
     SaveBackup(guid);
     const std::wstring fx = MM_CAPTURE + guid + L"\\FxProperties";
     const std::wstring props = MM_CAPTURE + guid + L"\\Properties";
-    bool ok = WriteProtected(fx, legacy ? V_LFX : V_SFX, SzVal(MP_CLSID_STR));
-    // Windows 11 drivers can list several stream effects in a composite slot; it takes priority.
     HKEY h = OpenRead(fx);
-    RegVal comp = ReadVal(h, V_CSFX);
+    RegVal compS = ReadVal(h, V_CSFX), compE = ReadVal(h, V_CEFX);
     if (h) RegCloseKey(h);
-    if (comp.exists && !legacy) ok &= WriteProtected(fx, V_CSFX, SzVal(MP_CLSID_STR, REG_MULTI_SZ));
+    bool ok = true;
+    if (slot == Slot_::Efx) {
+        ok &= WriteProtected(fx, V_EFX, SzVal(MP_CLSID_STR));
+        if (compE.exists) ok &= WriteProtected(fx, V_CEFX, SzVal(MP_CLSID_STR, REG_MULTI_SZ));
+        ok &= WriteProtected(fx, V_EFX_MODES, MultiSzVal({ MODE_DEFAULT, MODE_RAW, MODE_COMMS }));
+    } else if (slot == Slot_::Sfx) {
+        ok &= WriteProtected(fx, V_SFX, SzVal(MP_CLSID_STR));
+        if (compS.exists) ok &= WriteProtected(fx, V_CSFX, SzVal(MP_CLSID_STR, REG_MULTI_SZ));
+    } else {
+        ok &= WriteProtected(fx, V_LFX, SzVal(MP_CLSID_STR));
+    }
     // Make sure "Audio enhancements" are on for this mic, otherwise Windows skips all effects.
     ok &= WriteProtected(props, V_SYSFX, DwordVal(0));
-    Log((ok ? L"installed on " : L"FAILED install on ") + guid);
+    const wchar_t* name = slot == Slot_::Efx ? L"endpoint slot" : slot == Slot_::Sfx ? L"stream slot" : L"legacy slot";
+    Log((ok ? L"installed (" : L"FAILED install (") + std::wstring(name) + L") on " + guid);
     return ok;
 }
 
@@ -462,13 +500,16 @@ int wmain(int argc, wchar_t** argv) {
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (argc < 2) return Fail("usage: list | install | uninstall | apply | restart");
     const std::wstring cmd = argv[1];
-    bool restart = true, unregister = false, legacy = false;
+    bool restart = true, unregister = false;
+    Slot_ slot = Slot_::Efx;
     std::vector<std::wstring> targets, enable, disable;
     for (int i = 2; i < argc; ++i) {
         std::wstring a = argv[i];
         if (a == L"--no-restart") restart = false;
         else if (a == L"--unregister") unregister = true;
-        else if (a == L"--legacy") legacy = true;
+        else if (a == L"--legacy") slot = Slot_::Lfx;
+        else if (a == L"--sfx") slot = Slot_::Sfx;
+        else if (a == L"--efx") slot = Slot_::Efx;
         else if (a == L"--enable" && i + 1 < argc) { auto v = Split(argv[++i]); enable.insert(enable.end(), v.begin(), v.end()); }
         else if (a == L"--disable" && i + 1 < argc) { auto v = Split(argv[++i]); disable.insert(disable.end(), v.begin(), v.end()); }
         else targets.push_back(a);
@@ -519,7 +560,7 @@ int wmain(int argc, wchar_t** argv) {
         std::vector<std::wstring> off = resolve(disable);
         if (!on.empty() && !RegisterPlugin()) return Fail("could not register plugin");
         for (const auto& g : off) ok &= UninstallOn(g);
-        for (const auto& g : on) ok &= InstallOn(g, legacy);
+        for (const auto& g : on) ok &= InstallOn(g, slot);
         if (restart && (!on.empty() || !off.empty())) ok &= RestartAudio();
     } else if (cmd == L"uninstall") {
         std::vector<std::wstring> list;

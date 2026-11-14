@@ -54,7 +54,7 @@ Option B (on your PC):
 
 ### Troubleshooting direct mode
 - **Settings → Microphone shows "Ready" but never "Good":** no app is recording that mic. Open Discord's mic test, or check that the right mic is the Windows default.
-- **A specific mic driver ignores the plugin:** run `mishez-apo-setup.exe install <guid> --legacy` as admin (uses the older effect slot), or switch that PC to **Virtual cable** mode in Settings.
+- **A specific mic driver ignores the plugin:** run `mishez-apo-setup.exe install <guid> --sfx` (stream slot) or `--legacy` (older slot) as admin, or switch that PC to **Virtual cable** mode in Settings.
 - **Mic has no sound at all after enabling:** run `mishez-apo-setup.exe uninstall all` as admin (or uninstall the app). Every change is reversible from the backup.
 - **Windows warns about the installer:** the installer isn't code-signed yet, so Windows SmartScreen shows a warning. Before releasing publicly, sign it with a code-signing certificate.
 
