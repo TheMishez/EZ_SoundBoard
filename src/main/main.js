@@ -13,7 +13,7 @@ const apo = require('./apo');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
-app.setAppUserModelId('com.ezggco.mishezpad');
+app.setAppUserModelId('com.ezggco.ezsoundboard');
 
 // Serve the UI from app:// (a real origin) instead of file:// - AudioWorklet needs it.
 protocol.registerSchemesAsPrivileged([
@@ -40,8 +40,30 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(init);
 }
 
+// One-time move of the library from the app's old name ("Mishez Pad") to "EZ Soundboard".
+async function migrateFromOldName() {
+  try {
+    await fsp.access(LIB_FILE);
+    return; // already have a library
+  } catch { /* none yet */ }
+  const oldDir = path.join(app.getPath('appData'), 'Mishez Pad');
+  try {
+    await fsp.access(path.join(oldDir, 'library.json'));
+  } catch {
+    return;
+  }
+  await fsp.mkdir(SOUND_DIR, { recursive: true });
+  await fsp.copyFile(path.join(oldDir, 'library.json'), LIB_FILE);
+  try {
+    for (const f of await fsp.readdir(path.join(oldDir, 'sounds'))) {
+      await fsp.copyFile(path.join(oldDir, 'sounds', f), path.join(SOUND_DIR, f));
+    }
+  } catch { /* no sounds */ }
+}
+
 async function init() {
   await fsp.mkdir(SOUND_DIR, { recursive: true });
+  try { await migrateFromOldName(); } catch (e) { console.warn('migration failed', e); }
   protocol.handle('app', (req) => {
     const file = path.normalize(path.join(RENDERER_DIR, decodeURIComponent(new URL(req.url).pathname)));
     if (!file.startsWith(RENDERER_DIR)) return new Response('Forbidden', { status: 403 });
@@ -96,9 +118,9 @@ function createTray() {
   try {
     const img = nativeImage.createFromPath(path.join(ASSETS, 'tray.png'));
     tray = new Tray(img);
-    tray.setToolTip('Mishez Pad');
+    tray.setToolTip('EZ Soundboard');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Open Mishez Pad', click: showWindow },
+      { label: 'Open EZ Soundboard', click: showWindow },
       { label: 'Stop all sounds', click: () => win && win.webContents.send('hotkey', 'stopAll') },
       { type: 'separator' },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } }

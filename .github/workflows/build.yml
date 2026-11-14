@@ -1,4 +1,4 @@
-name: Build Mishez Pad installer
+name: Build EZ Soundboard installer
 
 on:
   push:
@@ -28,5 +28,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MishezPad-Setup
+          name: EZ-Soundboard-Setup
           path: dist/*.exe

@@ -1,5 +1,5 @@
 :root {
-  --accent: #b4ff39;
+  --accent: #ffd21f;
   --bg: #08090c;
   --bg2: #0d0f14;
   --panel: rgba(255, 255, 255, 0.028);
@@ -76,7 +76,7 @@ kbd {
 .logo span:nth-child(1) { height: 7px; } .logo span:nth-child(2) { height: 15px; }
 .logo span:nth-child(3) { height: 10px; } .logo span:nth-child(4) { height: 13px; }
 .brand-name { font-weight: 800; letter-spacing: 0.14em; font-size: 12px; }
-.brand-name b { color: var(--accent); margin-left: 3px; }
+.brand-mark { height: 19px; width: auto; flex: none; filter: drop-shadow(0 0 8px rgba(255, 210, 31, 0.35)); }
 .route-pill {
   display: flex; align-items: center; gap: 8px;
   height: 26px; padding: 0 12px; border-radius: 99px;

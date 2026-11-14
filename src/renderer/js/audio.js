@@ -4,7 +4,7 @@
    AudioWorklet can't load modules from file:// pages. */
 const TAP_WORKLET_SRC = `/* Captures the "they hear" sound mix as 10 ms blocks of interleaved stereo float32 and
    hands them to the app, which streams them into the microphone plugin. */
-class MishezTap extends AudioWorkletProcessor {
+class EZSBTap extends AudioWorkletProcessor {
   constructor() {
     super();
     this.block = 480; // 10 ms @ 48 kHz
@@ -32,7 +32,7 @@ class MishezTap extends AudioWorkletProcessor {
     return true;
   }
 }
-registerProcessor('mishez-tap', MishezTap);`;
+registerProcessor('ezsb-tap', EZSBTap);`;
 
 /**
  * Audio engine.
@@ -126,7 +126,7 @@ class AudioEngine {
   }
 
   /**
-   * Direct-to-mic mode: the sound mix is streamed to the Mishez Pad microphone plugin instead
+   * Direct-to-mic mode: the sound mix is streamed to the EZ Soundboard microphone plugin instead
    * of a playback device. onBlock receives 10 ms ArrayBuffers of interleaved stereo float32.
    */
   async setDirect(on, onBlock) {
@@ -134,7 +134,7 @@ class AudioEngine {
     if (on && !this.tap) {
       const url = URL.createObjectURL(new Blob([TAP_WORKLET_SRC], { type: 'application/javascript' }));
       try { await this.mic.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
-      this.tap = new AudioWorkletNode(this.mic, 'mishez-tap', {
+      this.tap = new AudioWorkletNode(this.mic, 'ezsb-tap', {
         numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit'
       });
       this.micMaster.connect(this.tap);

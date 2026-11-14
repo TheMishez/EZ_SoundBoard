@@ -1,8 +1,8 @@
-Mishez Pad starter pack
+EZ Soundboard starter pack
 =======================
 
 Sounds placed here ship inside the installer and are added to every new user's
-library the first time they open Mishez Pad (users can also re-add them from
+library the first time they open EZ Soundboard (users can also re-add them from
 "Add sounds" -> "Add starter sounds").
 
 Layout:

@@ -50,7 +50,7 @@ const fmtTime = (s) => {
 const toDb = (g) => (g <= 0.0001 ? '-∞' : (20 * Math.log10(g)).toFixed(1));
 
 const PALETTE = ['#b4ff39', '#39ffd2', '#3dafff', '#8b7bff', '#ff5fd2', '#ff5470', '#ff9f43', '#ffe14d', '#e6e8ee'];
-const ACCENTS = ['#b4ff39', '#39ffd2', '#3dafff', '#8b7bff', '#ff5fd2', '#ff5470', '#ff9f43'];
+const ACCENTS = ['#ffd21f', '#b4ff39', '#39ffd2', '#3dafff', '#8b7bff', '#ff5fd2', '#ff5470', '#ff9f43'];
 
 /* ============================== state ============================== */
 const DEFAULT_SETTINGS = {
@@ -69,7 +69,7 @@ const DEFAULT_SETTINGS = {
   playMode: 'overlap',
   ptt: { enabled: false, key: '', preDelay: 90, release: 250 },
   hotkeys: { stopAll: '', toggleMic: '', togglePassthrough: '' },
-  accent: '#b4ff39',
+  accent: '#ffd21f',
   padSize: 'm',
   layout: 'grid',         // 'grid' (pads) | 'list' (table)
   sort: 'manual',
@@ -307,7 +307,7 @@ async function syncHotkeys() {
 
 api.onHotkey((action) => {
   if (recording) return;
-  // Don't fire bare-key sound hotkeys while you're typing in Mishez Pad itself.
+  // Don't fire bare-key sound hotkeys while you're typing in EZ Soundboard itself.
   const ae = document.activeElement;
   const typing = document.hasFocus() && ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ['text', 'number', 'search', ''].includes(ae.type)));
   if (typing && action.startsWith('play:')) return;
@@ -1059,7 +1059,7 @@ let lastVoiceSent = null;
 function sendVoice() {
   if (!isDirect() || !api.apo) return;
   const st = S();
-  // Direct mode: Mishez Pad only ADDS sounds. Your voice is never changed, except by the
+  // Direct mode: EZ Soundboard only ADDS sounds. Your voice is never changed, except by the
   // optional "lower my voice while a sound plays" setting, and only while one plays.
   let g = 1;
   if (engine.isDucking()) g *= st.duckLevel;
@@ -1085,7 +1085,7 @@ async function applyApo(enable, disable) {
   if (!r.ok) {
     toast("Mic wasn't changed (permission declined or failed)", 'err');
   } else {
-    toast(enable.length ? 'Mishez Pad is now in your mic' : 'Mic restored', 'ok');
+    toast(enable.length ? 'EZ Soundboard is now in your mic' : 'Mic restored', 'ok');
   }
   // Windows Audio restarted: reopen our audio devices.
   await new Promise((res) => setTimeout(res, 1500));
@@ -1106,7 +1106,7 @@ async function startupMicCheck() {
   const m = modal(`
     <div class="mic-ask">
       <div class="rec-ring">${icon('mic')}</div>
-      <h3>Turn on Mishez Pad for your mic?</h3>
+      <h3>Turn on EZ Soundboard for your mic?</h3>
       <p class="muted">Sounds will play through <b>${esc(names)}</b> in CS2, Discord and every other app — your voice keeps working normally. No extra software needed.</p>
       <label class="switch small"><input type="checkbox" id="ask-again"/><span></span>Don't ask again</label>
       <div class="modal-actions"><button class="btn ghost" data-close>Not now</button><button class="btn primary" id="mic-enable">${icon('check')}Enable</button></div>
@@ -1151,7 +1151,7 @@ function renderRoutingPane(pane) {
     body = `
       <div class="flow">
         <div class="flow-node">${icon('mic')}<span>Your mic</span></div><i></i>
-        <div class="flow-node accent">${icon('wave')}<span>+ Mishez Pad</span></div><i></i>
+        <div class="flow-node accent">${icon('wave')}<span>+ EZ Soundboard</span></div><i></i>
         <div class="flow-node">${icon('bolt')}<span>CS2 · Discord · OBS<br><small>no settings to change</small></span></div>
       </div>
       <div class="form">
@@ -1175,7 +1175,7 @@ function renderRoutingPane(pane) {
           <b>${cable ? `Virtual cable found: ${esc(shortName(cable.label))}` : 'Install a virtual audio cable'}</b>
           <p class="muted small">${cable
             ? 'Set <b>Sounds → Mic output</b> to it below, then pick <b>CABLE Output</b> as your microphone in CS2 / Discord / OBS.'
-            : 'This mode plays into a virtual microphone. Install the free <b>VB-Audio Virtual Cable</b> and restart Mishez Pad.'}</p>
+            : 'This mode plays into a virtual microphone. Install the free <b>VB-Audio Virtual Cable</b> and restart EZ Soundboard.'}</p>
           ${cable ? '' : '<button class="btn sm primary" id="get-cable">Get VB-CABLE (free)' + icon('ext') + '</button>'}
         </div>
       </div>
@@ -1292,7 +1292,7 @@ async function openSettings(tab = 'routing') {
           <div class="backend ${hotkeyBackend === 'uiohook' ? 'ok' : ''}">
             ${hotkeyBackend === 'uiohook'
               ? `${icon('check')}<span><b>Pass-through hotkeys active.</b> Keys still reach your game, and Mouse 4/5 can be bound.</span>`
-              : `${icon('warn')}<span><b>Basic hotkeys.</b> Bound keys are captured by Mishez Pad. Run <code>npm install</code> with build tools to enable pass-through hotkeys (uiohook-napi).</span>`}
+              : `${icon('warn')}<span><b>Basic hotkeys.</b> Bound keys are captured by EZ Soundboard. Run <code>npm install</code> with build tools to enable pass-through hotkeys (uiohook-napi).</span>`}
           </div>
           <div class="hk-list">
             ${[['stopAll', 'Stop all sounds'], ['toggleMic', 'Toggle sounds → mic'], ['togglePassthrough', 'Mute / unmute my voice']].map(([k, l]) => `

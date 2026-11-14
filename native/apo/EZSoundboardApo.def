@@ -1,4 +1,4 @@
-LIBRARY MishezPadApo
+LIBRARY EZSoundboardApo
 EXPORTS
     DllGetClassObject PRIVATE
     DllCanUnloadNow PRIVATE

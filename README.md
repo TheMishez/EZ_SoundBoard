@@ -1,4 +1,4 @@
-# Mishez Pad
+# EZ Soundboard
 
 A modern Windows soundboard that plays sounds **through your microphone**, similar to Soundpad, but with a fresh UI and a few extras.
 
@@ -19,17 +19,17 @@ A modern Windows soundboard that plays sounds **through your microphone**, simil
 - **Auto-detects VB-CABLE** on first launch and shows a setup guide if it isn't installed.
 
 ## How sounds reach your mic (no VB-CABLE)
-Mishez Pad installs a small audio plugin (a Windows **APO**, the same technique Soundpad uses) into your real microphone. Windows runs it inside its own audio engine and it adds Mishez Pad's sounds on top of your voice. Every app that records that mic hears your voice **and** the sounds: CS2, Discord, OBS, anything. You don't change any game settings.
+EZ Soundboard installs a small audio plugin (a Windows **APO**, the same technique Soundpad uses) into your real microphone. Windows runs it inside its own audio engine and it adds EZ Soundboard's sounds on top of your voice. Every app that records that mic hears your voice **and** the sounds: CS2, Discord, OBS, anything. You don't change any game settings.
 
 It improves on Soundpad in two ways:
-- **Overlapping sounds work.** Mishez Pad mixes the sounds itself, then streams the finished mix to the plugin.
+- **Overlapping sounds work.** EZ Soundboard mixes the sounds itself, then streams the finished mix to the plugin.
 - **Several voice apps at once work.** Each app recording the mic (for example CS2 and Discord) gets its own full copy of the sounds.
 
 ## For players: install
-1. Run `MishezPad-Setup-x.y.z.exe`.
+1. Run `EZ-Soundboard-Setup-x.y.z.exe`.
 2. Click **Yes** on the single Windows permission prompt.
 
-That's it. The installer turns Mishez Pad on for your default microphone. To use other mics, go to Settings → Microphone, tick them and click **Apply**. If you later change your default mic, the app offers to enable the new one when it starts. Uninstalling restores your mics exactly as they were.
+That's it. The installer turns EZ Soundboard on for your default microphone. To use other mics, go to Settings → Microphone, tick them and click **Apply**. If you later change your default mic, the app offers to enable the new one when it starts. Uninstalling restores your mics exactly as they were.
 
 **Discord:** if sounds get cut off, turn off Krisp / noise suppression in Voice & Video.
 
@@ -48,14 +48,14 @@ Option B (on your PC):
 ### Native parts (`native/`)
 | File | Does |
 |---|---|
-| `MishezPadApo.dll` | The mic plugin. Passes your voice through and adds the sound mix from shared memory. |
-| `mishez-bridge.exe` | Started by the app. Streams the app's sound mix into shared memory. |
-| `mishez-apo-setup.exe` | Enables or disables the plugin on mics (`list`, `install default`, `uninstall all`). It backs up the original mic settings first and restarts Windows Audio. Logs: `%ProgramData%\MishezPad\` (setup.log, apo.log, bridge.log) |
+| `EZSoundboardApo.dll` | The mic plugin. Passes your voice through and adds the sound mix from shared memory. |
+| `ezsb-bridge.exe` | Started by the app. Streams the app's sound mix into shared memory. |
+| `ezsb-mic-setup.exe` | Enables or disables the plugin on mics (`list`, `install default`, `uninstall all`). It backs up the original mic settings first and restarts Windows Audio. Logs: `%ProgramData%\EZSoundboard\` (setup.log, apo.log, bridge.log) |
 
 ### Troubleshooting direct mode
 - **Settings → Microphone shows "Ready" but never "Good":** no app is recording that mic. Open Discord's mic test, or check that the right mic is the Windows default.
-- **A specific mic driver ignores the plugin:** run `mishez-apo-setup.exe install <guid> --sfx` (stream slot) or `--legacy` (older slot) as admin, or switch that PC to **Virtual cable** mode in Settings.
-- **Mic has no sound at all after enabling:** run `mishez-apo-setup.exe uninstall all` as admin (or uninstall the app). Every change is reversible from the backup.
+- **A specific mic driver ignores the plugin:** run `ezsb-mic-setup.exe install <guid> --sfx` (stream slot) or `--legacy` (older slot) as admin, or switch that PC to **Virtual cable** mode in Settings.
+- **Mic has no sound at all after enabling:** run `ezsb-mic-setup.exe uninstall all` as admin (or uninstall the app). Every change is reversible from the backup.
 - **Windows warns about the installer:** the installer isn't code-signed yet, so Windows SmartScreen shows a warning. Before releasing publicly, sign it with a code-signing certificate.
 
 ## Starter sounds (pre-installed)
@@ -66,7 +66,7 @@ Go to Settings → Push-to-talk, turn it on and bind the same key you use for vo
 
 ## Notes
 - `uiohook-napi` makes hotkeys work without blocking the key in your game. If it fails to install, the app falls back to Electron's built-in shortcuts, which take the key away from the game.
-- The sound library is stored in `%APPDATA%/Mishez Pad/`.
+- The sound library is stored in `%APPDATA%/EZ Soundboard/`.
 - Some anti-cheat systems (FACEIT, Vanguard) may ignore the key presses that auto push-to-talk sends. Sounds still go into the mic.
 
 ## Project layout

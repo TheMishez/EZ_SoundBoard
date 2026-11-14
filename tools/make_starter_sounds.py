@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generates Mishez Pad's starter pack: original, synthesized versions of classic meme / gaming
+Generates EZ Soundboard's starter pack: original, synthesized versions of classic meme / gaming
 sound effects. Every sound is made from scratch here (no samples), so EZGGco owns them and
 can ship them freely.
 

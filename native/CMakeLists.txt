@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(MishezPadNative LANGUAGES CXX)
+project(EZSoundboardNative LANGUAGES CXX)
 
 if(NOT WIN32)
-  message(FATAL_ERROR "The Mishez Pad mic plugin is Windows-only. Build with Visual Studio 2022 (x64).")
+  message(FATAL_ERROR "The EZ Soundboard mic plugin is Windows-only. Build with Visual Studio 2022 (x64).")
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -19,13 +19,13 @@ foreach(cfg "" _DEBUG _RELEASE _RELWITHDEBINFO _MINSIZEREL)
 endforeach()
 
 # The plugin Windows loads into the microphone pipeline
-add_library(MishezPadApo SHARED apo/MishezApo.cpp apo/MishezApo.def)
-target_link_libraries(MishezPadApo PRIVATE ole32 advapi32 uuid)
+add_library(EZSoundboardApo SHARED apo/EZSoundboardApo.cpp apo/EZSoundboardApo.def)
+target_link_libraries(EZSoundboardApo PRIVATE ole32 advapi32 uuid)
 
 # Streams the app's sound mix into the plugin (runs as the normal user)
-add_executable(mishez-bridge bridge/bridge.cpp)
-target_link_libraries(mishez-bridge PRIVATE ole32 advapi32)
+add_executable(ezsb-bridge bridge/bridge.cpp)
+target_link_libraries(ezsb-bridge PRIVATE ole32 advapi32)
 
 # Enables / disables the plugin on microphones (runs elevated)
-add_executable(mishez-apo-setup setup/setup.cpp)
-target_link_libraries(mishez-apo-setup PRIVATE ole32 advapi32 uuid)
+add_executable(ezsb-mic-setup setup/setup.cpp)
+target_link_libraries(ezsb-mic-setup PRIVATE ole32 advapi32 uuid)

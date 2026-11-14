@@ -1,15 +1,15 @@
-// mishez-apo-setup.exe - installs / removes the Mishez Pad plugin on microphones.
+// ezsb-mic-setup.exe - installs / removes the EZ Soundboard plugin on microphones.
 //
-//   mishez-apo-setup list                          (no admin) JSON list of mics + status
-//   mishez-apo-setup install default|<guid>...     (admin)    enable on mics
-//   mishez-apo-setup uninstall all|<guid>...       (admin)    restore mics exactly as they were
-//   mishez-apo-setup apply --enable a,b --disable c (admin)   used by the app's Microphones tab
-//   mishez-apo-setup restart                       (admin)    restart Windows Audio
+//   ezsb-mic-setup list                          (no admin) JSON list of mics + status
+//   ezsb-mic-setup install default|<guid>...     (admin)    enable on mics
+//   ezsb-mic-setup uninstall all|<guid>...       (admin)    restore mics exactly as they were
+//   ezsb-mic-setup apply --enable a,b --disable c (admin)   used by the app's Microphones tab
+//   ezsb-mic-setup restart                       (admin)    restart Windows Audio
 // Flags: --no-restart, --unregister (with uninstall all), --efx (default) | --sfx | --legacy (effect slot)
 //
 // What "install" does (same idea as Soundpad / Equalizer APO):
-//  1. registers MishezPadApo.dll as a COM class + audio processing object
-//  2. backs up the mic's effect slots to HKLM\SOFTWARE\MishezPad\ApoBackup\<guid>
+//  1. registers EZSoundboardApo.dll as a COM class + audio processing object
+//  2. backs up the mic's effect slots to HKLM\SOFTWARE\EZGG\EZSoundboard\ApoBackup\<guid>
 //  3. points the mic's stream-effect slot at our plugin and makes sure effects are enabled
 //  4. restarts the Windows Audio service so the change takes effect
 
@@ -23,7 +23,7 @@
 #include "../common/shared.h"
 
 static const std::wstring MM_CAPTURE = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\";
-static const std::wstring BACKUP_ROOT = L"SOFTWARE\\MishezPad\\ApoBackup";
+static const std::wstring BACKUP_ROOT = L"SOFTWARE\\EZGG\\EZSoundboard\\ApoBackup";
 static const wchar_t* V_LFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},1";
 static const wchar_t* V_GFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},2";
 static const wchar_t* V_SFX = L"{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},5";
@@ -81,7 +81,7 @@ static std::wstring ExeDir() {
 static void Log(const std::wstring& msg) {
     wchar_t pd[MAX_PATH];
     if (!GetEnvironmentVariableW(L"ProgramData", pd, MAX_PATH)) return;
-    std::wstring dir = std::wstring(pd) + L"\\MishezPad";
+    std::wstring dir = std::wstring(pd) + L"\\EZSoundboard";
     CreateDirectoryW(dir.c_str(), nullptr);
     FILE* f = nullptr;
     if (_wfopen_s(&f, (dir + L"\\setup.log").c_str(), L"a, ccs=UTF-8") == 0 && f) {
@@ -223,7 +223,7 @@ static bool WriteProtected(const std::wstring& path, const wchar_t* name, const 
 }
 
 /* ---------------- shared buffer file ---------------- */
-// Pre-create %ProgramData%\MishezPad and the shared buffer with an ACL that both the Windows
+// Pre-create %ProgramData%\EZSoundboard and the shared buffer with an ACL that both the Windows
 // audio service (where the plugin runs) and the normal-user app can read/write.
 static bool EnsureSharedFile() {
     wchar_t dir[MAX_PATH], path[MAX_PATH];
@@ -264,13 +264,13 @@ static bool SetStr(const std::wstring& path, const wchar_t* name, const std::wst
 static bool SetDword(HKEY h, const wchar_t* name, DWORD d) { return WriteVal(h, name, DwordVal(d)) == ERROR_SUCCESS; }
 
 static bool RegisterPlugin() {
-    std::wstring dll = ExeDir() + L"MishezPadApo.dll";
+    std::wstring dll = ExeDir() + L"EZSoundboardApo.dll";
     if (GetFileAttributesW(dll.c_str()) == INVALID_FILE_ATTRIBUTES) {
         Log(L"missing " + dll);
         return false;
     }
     std::wstring clsidKey = L"SOFTWARE\\Classes\\CLSID\\" + std::wstring(MP_CLSID_STR);
-    bool ok = SetStr(clsidKey, nullptr, L"Mishez Pad Mic Mixer");
+    bool ok = SetStr(clsidKey, nullptr, L"EZ Soundboard Mic Mixer");
     ok &= SetStr(clsidKey + L"\\InprocServer32", nullptr, dll);
     ok &= SetStr(clsidKey + L"\\InprocServer32", L"ThreadingModel", L"Both");
 
@@ -279,7 +279,7 @@ static bool RegisterPlugin() {
     std::wstring apoKey = L"SOFTWARE\\Classes\\AudioEngine\\AudioProcessingObjects\\" + std::wstring(MP_CLSID_STR);
     HKEY h = nullptr;
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, apoKey.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS | KEY_WOW64_64KEY, nullptr, &h, nullptr) != ERROR_SUCCESS) return false;
-    ok &= WriteVal(h, L"FriendlyName", SzVal(L"Mishez Pad Mic Mixer")) == ERROR_SUCCESS;
+    ok &= WriteVal(h, L"FriendlyName", SzVal(L"EZ Soundboard Mic Mixer")) == ERROR_SUCCESS;
     ok &= WriteVal(h, L"Copyright", SzVal(L"Copyright (c) EZGGco")) == ERROR_SUCCESS;
     ok &= SetDword(h, L"MajorVersion", 1);
     ok &= SetDword(h, L"MinorVersion", 0);
@@ -407,7 +407,7 @@ enum class Slot_ { Efx, Sfx, Lfx };
 static bool g_keepEffects = false;
 
 static bool InstallOn(const std::wstring& guid, Slot_ slot) {
-    // Start from the mic's original settings (undo any earlier Mishez Pad install first),
+    // Start from the mic's original settings (undo any earlier EZ Soundboard install first),
     // so switching slots never leaves the plugin in two places.
     if (IsInstalledOn(guid)) UninstallOn(guid);
     SaveBackup(guid);
@@ -506,6 +506,25 @@ static std::vector<std::wstring> BackedUpGuids() {
     return out;
 }
 
+/* ---------------- migration from the old "Mishez Pad" name ---------------- */
+static void MigrateLegacyBackups() {
+    const wchar_t* legacy = L"SOFTWARE\\MishezPad\\ApoBackup";
+    HKEY oldk = OpenRead(legacy);
+    if (!oldk) return;
+    HKEY newk = nullptr;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, BACKUP_ROOT.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS | KEY_WOW64_64KEY,
+                        nullptr, &newk, nullptr) == ERROR_SUCCESS) {
+        if (RegCopyTreeW(oldk, nullptr, newk) == ERROR_SUCCESS) {
+            RegCloseKey(oldk);
+            oldk = nullptr;
+            RegDeleteTreeW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\MishezPad");
+            Log(L"migrated mic backups from the old Mishez Pad install");
+        }
+        RegCloseKey(newk);
+    }
+    if (oldk) RegCloseKey(oldk);
+}
+
 /* ---------------- main ---------------- */
 static int Fail(const char* msg, int code = 1) {
     printf("{\"ok\":false,\"error\":\"%s\"}\n", msg);
@@ -555,6 +574,7 @@ int wmain(int argc, wchar_t** argv) {
     EnablePriv(SE_BACKUP_NAME);
     EnablePriv(SE_RESTORE_NAME);
     EnablePriv(SE_TAKE_OWNERSHIP_NAME);
+    MigrateLegacyBackups();
 
     auto resolve = [](const std::vector<std::wstring>& in) {
         std::vector<std::wstring> out;

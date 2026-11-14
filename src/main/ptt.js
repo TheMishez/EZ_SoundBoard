@@ -75,7 +75,7 @@ let held = null;
 function ensure() {
   if (process.platform !== 'win32') return null;
   if (proc && !proc.killed && proc.exitCode === null) return proc;
-  const file = path.join(os.tmpdir(), 'mishezpad-ptt.ps1');
+  const file = path.join(os.tmpdir(), 'ezsoundboard-ptt.ps1');
   fs.writeFileSync(file, SCRIPT, 'utf8');
   proc = spawn('powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', file],

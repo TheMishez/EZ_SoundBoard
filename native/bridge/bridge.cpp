@@ -1,6 +1,6 @@
-// mishez-bridge.exe - started by the Mishez Pad app (no admin needed).
+// ezsb-bridge.exe - started by the EZ Soundboard app (no admin needed).
 // Reads framed packets from stdin and writes the sound mix into the shared ring buffer
-// that the microphone plugin (MishezPadApo.dll) reads from.
+// that the microphone plugin (EZSoundboardApo.dll) reads from.
 //
 // stdin packet:  uint32 type, uint32 byteLength, payload
 //   type 1 = PCM: float32 interleaved stereo @ 48 kHz

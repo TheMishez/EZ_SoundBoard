@@ -1,5 +1,5 @@
-// Shared-memory contract between the Mishez Pad app (via mishez-bridge.exe) and the
-// MishezPadApo.dll plugin that Windows loads into the microphone's audio pipeline.
+// Shared-memory contract between the EZ Soundboard app (via ezsb-bridge.exe) and the
+// EZSoundboardApo.dll plugin that Windows loads into the microphone's audio pipeline.
 //
 // The app writes its finished sound mix (48 kHz, stereo, float) into a ring buffer as a
 // timeline: writePos only ever grows. Every plugin instance (one per app recording the mic,
@@ -12,7 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 
-// Shared buffer = a small file in %ProgramData%\MishezPad mapped into memory by both sides.
+// Shared buffer = a small file in %ProgramData%\EZSoundboard mapped into memory by both sides.
 // (A named "Global\\" section can't be shared between Windows' protected audio service and a
 // normal app, but a file with an open ACL can - and views of the same file are coherent.)
 #define MP_FILE_SDDL     L"D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;LS)(A;;FA;;;NS)(A;;FA;;;WD)(A;;FA;;;AC)(A;;FA;;;S-1-15-2-2)(A;;FA;;;WR)(A;;FA;;;RC)(A;;FA;;;S-1-5-80-2676549577-1911656217-2625096541-4178041876-1366760775)S:(ML;OICI;NW;;;LW)"
@@ -22,7 +22,7 @@
 #define MP_RING_FRAMES   (MP_RATE * 2)  // 2 seconds of stereo audio
 
 // {6EDE81E0-9BA8-41F6-A8BD-6E21436D8999}
-static const GUID CLSID_MishezPadApo =
+static const GUID CLSID_EZSoundboardApo =
     { 0x6ede81e0, 0x9ba8, 0x41f6, { 0xa8, 0xbd, 0x6e, 0x21, 0x43, 0x6d, 0x89, 0x99 } };
 #define MP_CLSID_STR L"{6EDE81E0-9BA8-41F6-A8BD-6E21436D8999}"
 
@@ -59,15 +59,15 @@ static inline bool mpPaths(wchar_t* dir, size_t dn, wchar_t* file, size_t fn) {
         if (GetSystemWindowsDirectoryW(win, MAX_PATH) >= 2) win[2] = 0; // "C:"
         swprintf_s(base, MAX_PATH, L"%s\\ProgramData", win);
     }
-    swprintf_s(dir, dn, L"%s\\MishezPad", base);
-    swprintf_s(file, fn, L"%s\\MishezPad\\mixbuffer.bin", base);
+    swprintf_s(dir, dn, L"%s\\EZSoundboard", base);
+    swprintf_s(file, fn, L"%s\\EZSoundboard\\mixbuffer.bin", base);
     return true;
 }
 
 // Debug messages visible live with Microsoft's DebugView (Capture Global Win32).
 static inline void mpDebug(const wchar_t* who, const wchar_t* msg, long long v) {
     wchar_t line[400];
-    swprintf_s(line, 400, L"[MishezPad %s pid %lu] %s %lld\n", who, GetCurrentProcessId(), msg, v);
+    swprintf_s(line, 400, L"[EZSB %s pid %lu] %s %lld\n", who, GetCurrentProcessId(), msg, v);
     OutputDebugStringW(line);
 }
 

@@ -1,8 +1,8 @@
 'use strict';
 /**
  * Direct-to-mic mode (no virtual cable).
- *  - mishez-apo-setup.exe enables/disables the Mishez Pad plugin on microphones (elevated when changing)
- *  - mishez-bridge.exe streams the app's sound mix into the plugin via shared memory
+ *  - ezsb-mic-setup.exe enables/disables the EZ Soundboard plugin on microphones (elevated when changing)
+ *  - ezsb-bridge.exe streams the app's sound mix into the plugin via shared memory
  */
 const { app } = require('electron');
 const { spawn, execFile } = require('child_process');
@@ -14,13 +14,13 @@ function driverDir() {
     ? path.join(process.resourcesPath, 'driver')
     : path.join(__dirname, '..', '..', 'native', 'bin');
 }
-const setupExe = () => path.join(driverDir(), 'mishez-apo-setup.exe');
-const bridgeExe = () => path.join(driverDir(), 'mishez-bridge.exe');
+const setupExe = () => path.join(driverDir(), 'ezsb-mic-setup.exe');
+const bridgeExe = () => path.join(driverDir(), 'ezsb-bridge.exe');
 
 function available() {
   return process.platform === 'win32' &&
     fs.existsSync(setupExe()) && fs.existsSync(bridgeExe()) &&
-    fs.existsSync(path.join(driverDir(), 'MishezPadApo.dll'));
+    fs.existsSync(path.join(driverDir(), 'EZSoundboardApo.dll'));
 }
 
 function parseJson(out) {

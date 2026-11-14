@@ -1,6 +1,6 @@
-// MishezPadApo.dll - an Audio Processing Object (APO) that Windows loads into a microphone's
+// EZSoundboardApo.dll - an Audio Processing Object (APO) that Windows loads into a microphone's
 // audio pipeline (inside audiodg.exe). It passes your real voice through untouched and adds
-// the sound mix that Mishez Pad writes into shared memory. Every app recording the mic
+// the sound mix that EZ Soundboard writes into shared memory. Every app recording the mic
 // (CS2, Discord, OBS...) therefore hears your voice + the sounds, with no virtual cable.
 //
 // Realtime rules: APOProcess never allocates, locks, or does I/O.
@@ -61,7 +61,7 @@ static HRESULT CheckFormat(IAudioMediaType* opposite, IAudioMediaType* requested
     return S_OK;
 }
 
-class MishezApo final :
+class EZSoundboardApo final :
     public IAudioProcessingObject,
     public IAudioProcessingObjectRT,
     public IAudioProcessingObjectConfiguration,
@@ -71,16 +71,16 @@ public:
     // Microsoft's SwapAPO sample. So we implement the standard COM aggregation pattern:
     // a private "inner" IUnknown owns the reference count, and the IUnknown methods on our
     // public interfaces delegate to the outer object (or to the inner one when not aggregated).
-    explicit MishezApo(IUnknown* outer) {
+    explicit EZSoundboardApo(IUnknown* outer) {
         InterlockedIncrement(&g_objects);
         m_inner.self = this;
         m_outer = outer ? outer : static_cast<IUnknown*>(&m_inner);
         mpDebug(L"apo", outer ? L"object created (aggregated)" : L"object created", 0);
     }
-    ~MishezApo() { CloseShared(); InterlockedDecrement(&g_objects); }
+    ~EZSoundboardApo() { CloseShared(); InterlockedDecrement(&g_objects); }
 
     struct Inner : public IUnknown {
-        MishezApo* self = nullptr;
+        EZSoundboardApo* self = nullptr;
         STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override { return self->NDQueryInterface(riid, ppv); }
         STDMETHODIMP_(ULONG) AddRef() override { return (ULONG)InterlockedIncrement(&self->m_ref); }
         STDMETHODIMP_(ULONG) Release() override {
@@ -138,9 +138,9 @@ public:
         auto* p = static_cast<APO_REG_PROPERTIES*>(CoTaskMemAlloc(sizeof(APO_REG_PROPERTIES)));
         if (!p) return E_OUTOFMEMORY;
         ZeroMemory(p, sizeof(*p));
-        p->clsid = CLSID_MishezPadApo;
+        p->clsid = CLSID_EZSoundboardApo;
         p->Flags = APO_FLAG_DEFAULT;
-        wcscpy_s(p->szFriendlyName, L"Mishez Pad Mic Mixer");
+        wcscpy_s(p->szFriendlyName, L"EZ Soundboard Mic Mixer");
         wcscpy_s(p->szCopyrightInfo, L"Copyright (c) EZGGco");
         p->u32MajorVersion = 1;
         p->u32MinorVersion = 0;
@@ -245,7 +245,7 @@ public:
             writerAlive = wt != 0 && now >= (ULONGLONG)wt && now - (ULONGLONG)wt < 400;
         }
 
-        // 1) your real voice (gain only applies while Mishez Pad is running)
+        // 1) your real voice (gain only applies while EZ Soundboard is running)
         float target = 1.0f;
         if (writerAlive) {
             target = mpBitsToFloat(s->voiceGainBits);
@@ -265,7 +265,7 @@ public:
         }
         m_voice = target;
 
-        // 2) add the sound mix from Mishez Pad
+        // 2) add the sound mix from EZ Soundboard
         bool added = false;
         if (writerAlive) {
             const double targetLat = MP_RATE * 0.05;  // 50 ms cushion against IPC jitter
@@ -375,7 +375,7 @@ public:
         *ppv = nullptr;
         DebugGuid(outer ? L"CreateInstance (aggregated) for" : L"CreateInstance for", riid, 0);
         if (outer && riid != __uuidof(IUnknown)) return CLASS_E_NOAGGREGATION;
-        auto* apo = new (std::nothrow) MishezApo(outer);
+        auto* apo = new (std::nothrow) EZSoundboardApo(outer);
         if (!apo) return E_OUTOFMEMORY;
         HRESULT hr = apo->NDQueryInterface(riid, ppv);
         apo->m_inner.Release(); // drop the creation reference
@@ -395,7 +395,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
     *ppv = nullptr;
     DebugGuid(L"DllGetClassObject clsid", rclsid, 0);
     DebugGuid(L"DllGetClassObject iid", riid, 0);
-    if (!IsEqualCLSID(rclsid, CLSID_MishezPadApo)) {
+    if (!IsEqualCLSID(rclsid, CLSID_EZSoundboardApo)) {
         mpDebug(L"apo", L"wrong CLSID, refusing", 0);
         return CLASS_E_CLASSNOTAVAILABLE;
     }
