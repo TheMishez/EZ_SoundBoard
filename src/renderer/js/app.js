@@ -315,6 +315,7 @@ api.onHotkey((action) => {
     applyMixer();
     toast(S().soundsToMic ? 'Sounds → mic ON' : 'Sounds → mic OFF (only you hear)');
   } else if (action === 'togglePassthrough') {
+    if (isDirect()) { toast('Direct mode never mutes your mic - use the Discord / game mute instead'); return; }
     S().passthrough = !S().passthrough;
     applyMicInput();
     toast(isDirect() ? (S().passthrough ? 'Your voice is ON' : 'Your voice is MUTED (sounds still play)') : (S().passthrough ? 'Mic passthrough ON' : 'Mic passthrough OFF'));
@@ -458,13 +459,13 @@ function renderMixer() {
       <input type="range" class="range" min="0" max="2" step="0.01" value="${st.micOutVolume}" data-mix="micOutVolume" />
     </div>
     <div class="mix-row">
-      <div class="mix-label">${icon('mic')}<span>${isDirect() ? 'Your mic' : 'Your voice'}</span><b id="mv-voice">${st.passthrough ? Math.round(st.voiceVolume * 100) + '%' : 'off'}</b></div>
+      <div class="mix-label">${icon('mic')}<span>${isDirect() ? 'Your mic' : 'Your voice'}</span><b id="mv-voice">${isDirect() ? 'untouched' : (st.passthrough ? Math.round(st.voiceVolume * 100) + '%' : 'off')}</b></div>
       <div class="meter voice"><i id="m-voice"></i></div>
-      <input type="range" class="range" min="0" max="2" step="0.01" value="${st.voiceVolume}" data-mix="voiceVolume" ${st.passthrough ? '' : 'disabled'} />
+      ${isDirect() ? '' : `<input type="range" class="range" min="0" max="2" step="0.01" value="${st.voiceVolume}" data-mix="voiceVolume" ${st.passthrough ? '' : 'disabled'} />`}
     </div>
     <div class="mix-toggles">
       <button class="chip-toggle ${st.soundsToMic ? 'on' : ''}" data-tog="soundsToMic" title="Send sounds into the mic">${icon('broadcast')}<span>To mic</span></button>
-      <button class="chip-toggle ${st.passthrough ? 'on' : ''}" data-tog="passthrough" title="Pass your real mic through">${icon('mic')}<span>Voice</span></button>
+      ${isDirect() ? '' : `<button class="chip-toggle ${st.passthrough ? 'on' : ''}" data-tog="passthrough" title="Pass your real mic through">${icon('mic')}<span>Voice</span></button>`}
       <button class="chip-toggle ${st.ptt.enabled ? 'on' : ''}" data-tog="ptt" title="Auto push-to-talk">${icon('key')}<span>PTT</span></button>
     </div>`;
 }
@@ -987,7 +988,9 @@ let lastVoiceSent = null;
 function sendVoice() {
   if (!isDirect() || !api.apo) return;
   const st = S();
-  let g = st.passthrough ? st.voiceVolume : 0;
+  // Direct mode: Mishez Pad only ADDS sounds. Your voice is never changed, except by the
+  // optional "lower my voice while a sound plays" setting, and only while one plays.
+  let g = 1;
   if (engine.isDucking()) g *= st.duckLevel;
   g = Math.round(g * 1000) / 1000;
   if (g === lastVoiceSent) return;
@@ -1088,7 +1091,7 @@ function renderRoutingPane(pane) {
           <span class="muted small">Changing mics asks for permission once and briefly restarts Windows audio.</span></div>
         <div class="toggles col">
           <label class="switch"><input type="checkbox" id="s-check" ${st.checkMicOnStartup ? 'checked' : ''}/><span></span>Check my default mic on startup</label>
-          <label class="switch"><input type="checkbox" id="s-duck" ${st.duck ? 'checked' : ''}/><span></span>Lower my voice while a sound plays (set to 0% in Playback to block it)</label>
+          <label class="switch"><input type="checkbox" id="s-duck" ${st.duck ? 'checked' : ''}/><span></span>Lower my voice only while a sound plays (optional - set the level in Playback, 0% = block)</label>
         </div>
         <p class="muted small">Discord: if sounds get cut off, turn off <b>Krisp / noise suppression</b> in Voice &amp; Video. Most games and apps already use your default mic, so nothing else changes.</p>
         <p class="diag small" id="apo-diag">Diagnostics: ${esc(apoDiagText())}</p>
@@ -1428,7 +1431,8 @@ function bindEvents() {
     engine.setVolumes({ monitor: S().monitorVolume, micOut: S().micOutVolume, voice: S().voiceVolume });
     sendVoice();
     const map = { monitorVolume: 'mv-monitor', micOutVolume: 'mv-micOut', voiceVolume: 'mv-voice' };
-    $('#' + map[k]).textContent = Math.round(S()[k] * 100) + '%';
+    const lbl = document.getElementById(map[k]);
+    if (lbl) lbl.textContent = Math.round(S()[k] * 100) + '%';
     save();
   });
   $('#mixer').addEventListener('click', async (e) => {
