@@ -29,6 +29,7 @@ const I = {
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
   ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
   muteMic: '<path d="M3 3l18 18"/><path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.9-.8"/><path d="M5 11a7 7 0 0 0 11.5 5.4M19 11a7 7 0 0 1-.6 2.8M12 18v3"/>'
 };
 const icon = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${I[n] || ''}</svg>`;
@@ -70,10 +71,12 @@ const DEFAULT_SETTINGS = {
   hotkeys: { stopAll: '', toggleMic: '', togglePassthrough: '' },
   accent: '#b4ff39',
   padSize: 'm',
+  layout: 'grid',         // 'grid' (pads) | 'list' (table)
   sort: 'manual',
   closeToTray: true,
   setupSeen: false,
   micMode: '',            // 'direct' (built-in plugin, no cable) | 'cable' (VB-CABLE)
+  starterImported: false,
   checkMicOnStartup: true
 };
 
@@ -95,7 +98,7 @@ function defaultLib() {
     settings: structuredClone(DEFAULT_SETTINGS),
     categories: [
       { id: uid(), name: 'Memes', color: '#ff5fd2' },
-      { id: uid(), name: 'Callouts', color: '#39ffd2' },
+      { id: uid(), name: 'Game', color: '#39ffd2' },
       { id: uid(), name: 'Music', color: '#3dafff' }
     ],
     sounds: [],
@@ -377,11 +380,11 @@ engine.onChange = () => {
 };
 
 /* ============================== import ============================== */
-async function importPaths(paths) {
-  if (!paths || !paths.length) return;
-  const cat = findCat(view.section) ? view.section : null;
+async function importPaths(paths, { category, quiet = false } = {}) {
+  if (!paths || !paths.length) return 0;
+  const cat = category !== undefined ? category : (findCat(view.section) ? view.section : null);
   const res = await api.importPaths(paths);
-  if (!res.length) { toast('No supported audio files found', 'err'); return; }
+  if (!res.length) { if (!quiet) toast('No supported audio files found', 'err'); return 0; }
   let ok = 0;
   for (const r of res) {
     const s = {
@@ -402,7 +405,38 @@ async function importPaths(paths) {
   }
   save();
   renderAll();
-  toast(`Added ${ok} sound${ok === 1 ? '' : 's'}${res.length - ok ? ` · ${res.length - ok} couldn't be decoded` : ''}`, ok ? 'ok' : 'err');
+  if (!quiet) toast(`Added ${ok} sound${ok === 1 ? '' : 's'}${res.length - ok ? ` · ${res.length - ok} couldn't be decoded` : ''}`, ok ? 'ok' : 'err');
+  return ok;
+}
+
+/** Imports the sounds bundled with the app (assets/starter-sounds). Subfolders become boards. */
+async function importStarterPack({ onlyIfNew = false } = {}) {
+  let list = [];
+  try { list = await api.starterSounds(); } catch { list = []; }
+  if (!list.length) { if (!onlyIfNew) toast('No starter sounds in this build', 'err'); return; }
+  const byBoard = new Map();
+  for (const f of list) {
+    if (!byBoard.has(f.board)) byBoard.set(f.board, []);
+    byBoard.get(f.board).push(f.path);
+  }
+  let total = 0;
+  for (const [board, paths] of byBoard) {
+    let catId = null;
+    if (board) {
+      let c = lib.categories.find((x) => x.name.toLowerCase() === board.toLowerCase());
+      if (!c) {
+        c = { id: uid(), name: board, color: PALETTE[lib.categories.length % PALETTE.length] };
+        lib.categories.push(c);
+      }
+      catId = c.id;
+    }
+    total += await importPaths(paths, { category: catId, quiet: true });
+  }
+  for (const snd of lib.sounds) if (/\(loop\)/i.test(snd.name) && snd.plays === 0) snd.loop = true;
+  S().starterImported = true;
+  save();
+  renderAll();
+  if (total) toast(`Added ${total} starter sound${total === 1 ? '' : 's'}`, 'ok');
 }
 
 async function deleteSounds(ids) {
@@ -549,13 +583,13 @@ function renderBoardHead() {
     <span class="muted small hint">Click to play · <b>Shift</b>+click to preview (only you) · Right-click for more</span>`;
 }
 
-function renderGrid() {
-  const grid = $('#grid');
-  const list = visibleSounds();
-  grid.className = 'size-' + S().padSize;
-  grid.innerHTML = list.map((s) => {
-    const dur = s.trimEnd != null ? s.trimEnd - (s.trimStart || 0) : (s.duration || 0) - (s.trimStart || 0);
-    return `
+function soundDuration(s) {
+  const d = s.trimEnd != null ? s.trimEnd - (s.trimStart || 0) : (s.duration || 0) - (s.trimStart || 0);
+  return d / (s.speed || 1);
+}
+
+function padHTML(s) {
+  return `
     <div class="pad ${editingId === s.id ? 'editing' : ''}" data-id="${s.id}" draggable="true" style="--c:${soundColor(s)}">
       <canvas class="wave"></canvas>
       <div class="pad-fill"></div>
@@ -565,7 +599,7 @@ function renderGrid() {
       </div>
       <div class="pad-name" title="${esc(s.name)}">${esc(s.name)}</div>
       <div class="pad-meta">
-        <span>${fmtTime(dur / (s.speed || 1))}</span>
+        <span>${fmtTime(soundDuration(s))}</span>
         ${s.loop ? `<span class="tag">${icon('loop')}</span>` : ''}
         ${s.speed && s.speed !== 1 ? `<span class="tag">${s.speed}×</span>` : ''}
         ${s.volume !== 1 ? `<span class="tag">${Math.round(s.volume * 100)}%</span>` : ''}
@@ -573,7 +607,44 @@ function renderGrid() {
         <button class="pad-edit" data-act="edit" title="Edit">${icon('edit')}</button>
       </div>
     </div>`;
-  }).join('');
+}
+
+function rowHTML(s, i) {
+  const c = findCat(s.category);
+  return `
+    <div class="pad row ${editingId === s.id ? 'editing' : ''}" data-id="${s.id}" draggable="true" style="--c:${soundColor(s)}">
+      <div class="pad-fill"></div>
+      <span class="c-num">${i + 1}</span>
+      <span class="c-play">${icon('play')}</span>
+      <span class="c-name" title="${esc(s.name)}">${esc(s.name)}${s.loop ? `<em class="tag">${icon('loop')}</em>` : ''}</span>
+      <span class="c-board">${c ? `<span class="board-chip" style="--b:${c.color}"><i></i>${esc(c.name)}</span>` : '<span class="muted">—</span>'}</span>
+      <span class="c-key">${s.hotkey ? `<kbd class="hk">${esc(Keys.label(s.hotkey))}</kbd>` : '<span class="hk empty" data-act="hotkey">+ key</span>'}</span>
+      <span class="c-dur">${fmtTime(soundDuration(s))}</span>
+      <span class="c-vol">${Math.round((s.volume ?? 1) * 100)}%</span>
+      <span class="c-plays">${s.plays || 0}</span>
+      <span class="c-wave"><canvas class="wave"></canvas></span>
+      <span class="c-act">
+        <button class="fav ${s.fav ? 'on' : ''}" data-act="fav" title="Favorite">${icon('star')}</button>
+        <button class="pad-edit" data-act="edit" title="Edit">${icon('edit')}</button>
+      </span>
+    </div>`;
+}
+
+function renderGrid() {
+  const grid = $('#grid');
+  const list = visibleSounds();
+  const asList = S().layout === 'list';
+  grid.className = asList ? 'list' : 'size-' + S().padSize;
+  if (asList) {
+    const sort = S().sort;
+    const th = (key, label, cls) => `<span class="${cls} ${key ? 'sortable' : ''} ${key && sort === key ? 'sorted' : ''}" ${key ? `data-sort="${key}"` : ''}>${label}</span>`;
+    grid.innerHTML = list.length
+      ? `<div class="row head">${th('manual', '#', 'c-num')}<span class="c-play"></span>${th('name', 'Name', 'c-name')}<span class="c-board">Board</span><span class="c-key">Hotkey</span>${th('duration', 'Length', 'c-dur')}<span class="c-vol">Volume</span>${th('plays', 'Plays', 'c-plays')}<span class="c-wave">Waveform</span><span class="c-act"></span></div>` +
+        list.map(rowHTML).join('')
+      : '';
+  } else {
+    grid.innerHTML = list.map(padHTML).join('');
+  }
 
   const empty = $('#empty');
   if (!list.length) {
@@ -1308,6 +1379,11 @@ function renderModeSeg() {
   const modes = [['overlap', 'Overlap'], ['restart', 'Restart'], ['toggle', 'Toggle'], ['exclusive', 'Solo']];
   $('#mode-seg').innerHTML = modes.map(([v, l]) => `<button data-mode="${v}" class="${S().playMode === v ? 'on' : ''}">${l}</button>`).join('');
 }
+function renderLayoutSeg() {
+  $('#layout-seg').innerHTML = [['grid', 'grid', 'Pads'], ['list', 'list', 'List']].map(([v, ic, t]) =>
+    `<button data-layout="${v}" class="${S().layout === v ? 'on' : ''}" title="${t} view">${icon(ic)}</button>`).join('');
+  $('#size-seg').hidden = S().layout === 'list';
+}
 function renderSizeSeg() {
   $('#size-seg').innerHTML = [['s', 'S'], ['m', 'M'], ['l', 'L']].map(([v, l]) => `<button data-size="${v}" class="${S().padSize === v ? 'on' : ''}" title="Pad size">${l}</button>`).join('');
 }
@@ -1319,6 +1395,7 @@ function renderAll() {
   renderRoute();
   renderModeSeg();
   renderSizeSeg();
+  renderLayoutSeg();
   $('#sort').value = S().sort;
   renderGrid();
   renderNowbar();
@@ -1356,7 +1433,9 @@ function bindEvents() {
     const r = e.currentTarget.getBoundingClientRect();
     showMenu(r.left, r.bottom + 6, [
       { label: 'Add files…', icon: 'file', action: async () => importPaths(await api.pickFiles()) },
-      { label: 'Import folder…', icon: 'folder', action: async () => importPaths(await api.pickFolder()) }
+      { label: 'Import folder…', icon: 'folder', action: async () => importPaths(await api.pickFolder()) },
+      '-',
+      { label: 'Add starter sounds', icon: 'star', action: () => importStarterPack() }
     ]);
   };
 
@@ -1368,6 +1447,14 @@ function bindEvents() {
     S().playMode = b.dataset.mode;
     save();
     renderModeSeg();
+  };
+  $('#layout-seg').onclick = (e) => {
+    const b = e.target.closest('[data-layout]');
+    if (!b) return;
+    S().layout = b.dataset.layout;
+    save();
+    renderLayoutSeg();
+    renderGrid();
   };
   $('#size-seg').onclick = (e) => {
     const b = e.target.closest('[data-size]');
@@ -1457,6 +1544,14 @@ function bindEvents() {
   // grid
   const grid = $('#grid');
   grid.addEventListener('click', (e) => {
+    const sortEl = e.target.closest('[data-sort]');
+    if (sortEl) {
+      S().sort = sortEl.dataset.sort;
+      $('#sort').value = S().sort;
+      save();
+      renderGrid();
+      return;
+    }
     const pad = e.target.closest('.pad');
     if (!pad) return;
     const id = pad.dataset.id;
@@ -1662,6 +1757,7 @@ async function boot() {
   await applyMicInput();
   await syncHotkeys();
   requestAnimationFrame(frame);
+  if (!S().starterImported) await importStarterPack({ onlyIfNew: true });
   preloadBuffers();
   startupMicCheck();
 }

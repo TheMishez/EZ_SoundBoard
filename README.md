@@ -58,6 +58,9 @@ Option B (on your PC):
 - **Mic has no sound at all after enabling:** run `mishez-apo-setup.exe uninstall all` as admin (or uninstall the app). Every change is reversible from the backup.
 - **Windows warns about the installer:** the installer isn't code-signed yet, so Windows SmartScreen shows a warning. Before releasing publicly, sign it with a code-signing certificate.
 
+## Starter sounds (pre-installed)
+Put audio files in `assets/starter-sounds/`. Each subfolder becomes a board (`Memes/`, `Callouts/`, `Music/`...). They ship inside the installer and are added to every new user's library on first launch, and users can re-add them from **Add sounds → Add starter sounds**. Only ship sounds you have the rights to distribute.
+
 ## Push-to-talk games
 Go to Settings → Push-to-talk, turn it on and bind the same key you use for voice in the game (for example `V` or `Mouse 4`). If the start of sounds gets cut off, raise **Press before sound** to 120–150 ms.
 

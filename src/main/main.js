@@ -202,6 +202,17 @@ ipcMain.handle('sounds:import', async (_e, paths) => {
   return out;
 });
 
+// Starter pack: assets/starter-sounds/<Board name>/<sound files>. Files directly in the folder go
+// to no board. Shipped inside the installer and imported on first launch.
+ipcMain.handle('sounds:starter', async () => {
+  const root = path.join(ASSETS, 'starter-sounds');
+  const files = await walk(root);
+  return files.map((p) => {
+    const rel = path.relative(root, p).split(path.sep);
+    return { path: p, board: rel.length > 1 ? rel[0] : '' };
+  });
+});
+
 ipcMain.handle('sounds:read', async (_e, file) => fsp.readFile(safeFile(file)));
 ipcMain.handle('sounds:delete', async (_e, file) => {
   try { await fsp.unlink(safeFile(file)); } catch { /* already gone */ }

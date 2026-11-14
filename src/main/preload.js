@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   pickFiles: () => ipcRenderer.invoke('sounds:pickFiles'),
   pickFolder: () => ipcRenderer.invoke('sounds:pickFolder'),
   importPaths: (paths) => ipcRenderer.invoke('sounds:import', paths),
+  starterSounds: () => ipcRenderer.invoke('sounds:starter'),
   readSound: (file) => ipcRenderer.invoke('sounds:read', file),
   deleteSound: (file) => ipcRenderer.invoke('sounds:delete', file),
   revealSound: (file) => ipcRenderer.invoke('sounds:reveal', file),
