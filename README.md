@@ -1,6 +1,6 @@
 # EZ Soundboard
 
-A modern Windows soundboard that plays sounds **through your microphone**, similar to Soundpad, but with a fresh UI and a few extras.
+A modern Windows soundboard that plays sounds **through your microphone**, with a fresh UI.
 
 ![main](docs/screenshot-main.png)
 
