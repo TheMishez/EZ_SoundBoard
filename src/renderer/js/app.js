@@ -1,6 +1,5 @@
 'use strict';
 /* global Keys, AudioEngine */
-const api = window.api;
 const engine = new AudioEngine();
 
 /* ============================== icons ============================== */
