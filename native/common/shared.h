@@ -8,7 +8,6 @@
 #pragma once
 #include <windows.h>
 #include <sddl.h>
-#include <shlobj.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
@@ -16,7 +15,7 @@
 // Shared buffer = a small file in %ProgramData%\MishezPad mapped into memory by both sides.
 // (A named "Global\\" section can't be shared between Windows' protected audio service and a
 // normal app, but a file with an open ACL can - and views of the same file are coherent.)
-#define MP_FILE_SDDL     L"D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;LS)(A;;FA;;;NS)(A;;FA;;;WD)(A;;FA;;;AC)(A;;FA;;;S-1-15-2-2)"
+#define MP_FILE_SDDL     L"D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;LS)(A;;FA;;;NS)(A;;FA;;;WD)(A;;FA;;;AC)(A;;FA;;;S-1-15-2-2)(A;;FA;;;WR)(A;;FA;;;RC)(A;;FA;;;S-1-5-80-2676549577-1911656217-2625096541-4178041876-1366760775)S:(ML;OICI;NW;;;LW)"
 #define MP_MAGIC         0x4D504144u   // 'MPAD'
 #define MP_VERSION       1u
 #define MP_RATE          48000
@@ -50,13 +49,26 @@ static inline LONG64 mpLoad64(volatile LONG64* p) { return InterlockedCompareExc
 static inline float mpBitsToFloat(LONG b) { float f; memcpy(&f, &b, 4); return f; }
 static inline LONG mpFloatToBits(float f) { LONG b; memcpy(&b, &f, 4); return b; }
 
+// Plain path lookup (no shell APIs - those fail inside the locked-down audio service).
 static inline bool mpPaths(wchar_t* dir, size_t dn, wchar_t* file, size_t fn) {
-    PWSTR pd = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &pd)) || !pd) return false;
-    swprintf_s(dir, dn, L"%s\\MishezPad", pd);
-    swprintf_s(file, fn, L"%s\\MishezPad\\mixbuffer.bin", pd);
-    CoTaskMemFree(pd);
+    wchar_t base[MAX_PATH] = L"";
+    DWORD n = GetEnvironmentVariableW(L"ProgramData", base, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) {
+        // Fallback: <system drive>\ProgramData
+        wchar_t win[MAX_PATH] = L"C:\\";
+        if (GetSystemWindowsDirectoryW(win, MAX_PATH) >= 2) win[2] = 0; // "C:"
+        swprintf_s(base, MAX_PATH, L"%s\\ProgramData", win);
+    }
+    swprintf_s(dir, dn, L"%s\\MishezPad", base);
+    swprintf_s(file, fn, L"%s\\MishezPad\\mixbuffer.bin", base);
     return true;
+}
+
+// Debug messages visible live with Microsoft's DebugView (Capture Global Win32).
+static inline void mpDebug(const wchar_t* who, const wchar_t* msg, long long v) {
+    wchar_t line[400];
+    swprintf_s(line, 400, L"[MishezPad %s pid %lu] %s %lld\n", who, GetCurrentProcessId(), msg, v);
+    OutputDebugStringW(line);
 }
 
 // Opens (or creates) the shared buffer. Returns nullptr on failure; *err gets GetLastError().
@@ -97,6 +109,7 @@ static inline void mpCloseShared(MPShared* s, HANDLE f, HANDLE m) {
 
 // Small diagnostic log next to the buffer (never called from the realtime audio path).
 static inline void mpLog(const wchar_t* who, const wchar_t* msg, long long v) {
+    mpDebug(who, msg, v);
     wchar_t dir[MAX_PATH], path[MAX_PATH];
     if (!mpPaths(dir, MAX_PATH, path, MAX_PATH)) return;
     wchar_t logp[MAX_PATH];

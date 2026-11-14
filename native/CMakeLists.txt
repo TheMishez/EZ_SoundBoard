@@ -20,12 +20,12 @@ endforeach()
 
 # The plugin Windows loads into the microphone pipeline
 add_library(MishezPadApo SHARED apo/MishezApo.cpp apo/MishezApo.def)
-target_link_libraries(MishezPadApo PRIVATE ole32 advapi32 shell32 uuid)
+target_link_libraries(MishezPadApo PRIVATE ole32 advapi32 uuid)
 
 # Streams the app's sound mix into the plugin (runs as the normal user)
 add_executable(mishez-bridge bridge/bridge.cpp)
-target_link_libraries(mishez-bridge PRIVATE ole32 advapi32 shell32)
+target_link_libraries(mishez-bridge PRIVATE ole32 advapi32)
 
 # Enables / disables the plugin on microphones (runs elevated)
 add_executable(mishez-apo-setup setup/setup.cpp)
-target_link_libraries(mishez-apo-setup PRIVATE ole32 advapi32 shell32 uuid)
+target_link_libraries(mishez-apo-setup PRIVATE ole32 advapi32 uuid)

@@ -59,7 +59,7 @@ class MishezApo final :
     public IAudioProcessingObjectConfiguration,
     public IAudioSystemEffects2 {
 public:
-    MishezApo() { InterlockedIncrement(&g_objects); }
+    MishezApo() { InterlockedIncrement(&g_objects); mpDebug(L"apo", L"object created", 0); }
     ~MishezApo() { CloseShared(); InterlockedDecrement(&g_objects); }
 
     // ---------- IUnknown ----------
@@ -74,8 +74,14 @@ public:
             *ppv = static_cast<IAudioProcessingObjectConfiguration*>(this);
         else if (riid == __uuidof(IAudioSystemEffects) || riid == __uuidof(IAudioSystemEffects2))
             *ppv = static_cast<IAudioSystemEffects2*>(this);
-        else
+        else {
+            wchar_t g[64];
+            StringFromGUID2(riid, g, 64);
+            wchar_t m[128];
+            swprintf_s(m, 128, L"QueryInterface not supported: %s", g);
+            mpDebug(L"apo", m, 0);
             return E_NOINTERFACE;
+        }
         AddRef();
         return S_OK;
     }
@@ -121,10 +127,14 @@ public:
         return S_OK;
     }
     STDMETHODIMP IsInputFormatSupported(IAudioMediaType* opp, IAudioMediaType* req, IAudioMediaType** sup) override {
-        return CheckFormat(opp, req, sup);
+        HRESULT hr = CheckFormat(opp, req, sup);
+        mpDebug(L"apo", L"IsInputFormatSupported ->", (long long)(unsigned long)hr);
+        return hr;
     }
     STDMETHODIMP IsOutputFormatSupported(IAudioMediaType* opp, IAudioMediaType* req, IAudioMediaType** sup) override {
-        return CheckFormat(opp, req, sup);
+        HRESULT hr = CheckFormat(opp, req, sup);
+        mpDebug(L"apo", L"IsOutputFormatSupported ->", (long long)(unsigned long)hr);
+        return hr;
     }
     STDMETHODIMP GetInputChannelCount(UINT32* pu32ChannelCount) override {
         if (!pu32ChannelCount) return E_POINTER;
@@ -338,6 +348,7 @@ static Factory g_factory;
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
     if (!ppv) return E_POINTER;
     *ppv = nullptr;
+    mpDebug(L"apo", L"DllGetClassObject called", 0);
     if (!IsEqualCLSID(rclsid, CLSID_MishezPadApo)) return CLASS_E_CLASSNOTAVAILABLE;
     return g_factory.QueryInterface(riid, ppv);
 }
@@ -347,6 +358,9 @@ STDAPI DllCanUnloadNow() {
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
-    if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(hModule);
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hModule);
+        mpDebug(L"apo", L"DLL loaded", 0);
+    }
     return TRUE;
 }

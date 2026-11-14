@@ -210,8 +210,14 @@ static bool EnsureSharedFile() {
     CreateDirectoryW(dir, nullptr);
     PSECURITY_DESCRIPTOR sd = nullptr;
     if (ConvertStringSecurityDescriptorToSecurityDescriptorW(MP_FILE_SDDL, SDDL_REVISION_1, &sd, nullptr)) {
-        SetFileSecurityW(dir, DACL_SECURITY_INFORMATION, sd);
-        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) SetFileSecurityW(path, DACL_SECURITY_INFORMATION, sd);
+        const SECURITY_INFORMATION si = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+        SetFileSecurityW(dir, si, sd);
+        if (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES) SetFileSecurityW(path, si, sd);
+        wchar_t logp[MAX_PATH];
+        for (const wchar_t* nm : { L"apo.log", L"bridge.log", L"setup.log" }) {
+            swprintf_s(logp, MAX_PATH, L"%s\\%s", dir, nm);
+            if (GetFileAttributesW(logp) != INVALID_FILE_ATTRIBUTES) SetFileSecurityW(logp, si, sd);
+        }
         LocalFree(sd);
     }
     HANDLE f = nullptr, m = nullptr;
