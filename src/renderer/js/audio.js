@@ -166,6 +166,28 @@ class AudioEngine {
     this.mic.resume().catch(() => {});
   }
 
+  /**
+   * Power saving: stops the audio engine while nothing is playing. A suspended AudioContext does
+   * no work at all. mic=false keeps the mic side running (cable mode passes your voice through it).
+   */
+  async sleep({ mic = true } = {}) {
+    if (this.voices.size) return;
+    const jobs = [];
+    if (this.mon.state === 'running') jobs.push(this.mon.suspend());
+    if (mic && this.mic.state === 'running') jobs.push(this.mic.suspend());
+    await Promise.all(jobs.map((p) => p.catch(() => {})));
+  }
+
+  isAsleep() { return this.mon.state === 'suspended' || this.mic.state === 'suspended'; }
+
+  /** Wakes the engine up (instant when it's already running). */
+  async wake() {
+    const jobs = [];
+    if (this.mon.state !== 'running') jobs.push(this.mon.resume());
+    if (this.mic.state !== 'running') jobs.push(this.mic.resume());
+    if (jobs.length) await Promise.all(jobs.map((p) => p.catch(() => {})));
+  }
+
   /* ---------- routing ---------- */
 
   async setMonitorSink(deviceId) {

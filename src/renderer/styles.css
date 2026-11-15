@@ -644,3 +644,6 @@ body.dropping #drop-overlay { opacity: 1; }
 }
 .deck-step a { color: var(--accent); }
 .set-body code { font: 600 11px var(--mono); background: rgba(0, 0, 0, 0.3); padding: 1px 5px; border-radius: 5px; user-select: text; }
+
+/* Window in the background: pause looping animations so the GPU isn't redrawing for nothing. */
+body.away *, body.away *::before, body.away *::after { animation-play-state: paused !important; }

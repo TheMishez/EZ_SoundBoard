@@ -1,7 +1,7 @@
 {
   "name": "ez-soundboard",
   "productName": "EZ Soundboard",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Soundboard that plays sounds straight into your microphone",
   "main": "src/main/main.js",
   "author": "EZGGco",

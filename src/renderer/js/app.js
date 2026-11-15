@@ -79,6 +79,7 @@ const DEFAULT_SETTINGS = {
   micMode: '',            // 'direct' (built-in plugin, no cable) | 'cable' (VB-CABLE)
   starterImported: false,
   checkMicOnStartup: true,
+  powerSave: true,         // put the audio engine to sleep while nothing is playing
   tts: { voice: '', rate: 1, volume: 1, recent: [] }
 };
 
@@ -360,10 +361,11 @@ async function trigger(id, { monitorOnly = false } = {}) {
   if (mode === 'toggle' && engine.voicesFor(id).length) { engine.stopSound(id); return; }
   if (mode === 'restart') engine.stopSound(id);
   if (mode === 'exclusive') engine.stopAll();
-  engine.resume();
+  const waking = engine.wake(); // wakes the audio engine while the sound decodes
   const toMic = !monitorOnly && S().soundsToMic;
   try {
     await engine.getBuffer(s.file); // decode first so PTT isn't held during decoding
+    await waking;
     const delay = toMic ? pttPress() : 0;
     await engine.play(s, { delay: delay / 1000, monitorOnly: !toMic });
     if (!monitorOnly) {
@@ -1324,6 +1326,7 @@ async function openSettings(tab = 'routing') {
             <div class="toggles col">
               <label class="switch"><input type="checkbox" id="s-lim" ${st.limiter ? 'checked' : ''}/><span></span>Limiter on mic output (prevents clipping / distortion)</label>
               <label class="switch"><input type="checkbox" id="s-tray" ${st.closeToTray ? 'checked' : ''}/><span></span>Close button minimizes to tray (hotkeys keep working)</label>
+              <label class="switch"><input type="checkbox" id="s-power" ${st.powerSave ? 'checked' : ''}/><span></span>Save CPU when nothing is playing (the first sound after a pause may start a few milliseconds later)</label>
             </div>
             <label>Memory use <small class="muted">(how much decoded audio stays ready in RAM)</small></label>
             <div class="radios three" id="s-mem">
@@ -1407,6 +1410,7 @@ async function openSettings(tab = 'routing') {
     toast('Restart EZ Soundboard to apply (tray icon → Quit, then open it again)');
   };
   $('#s-lim', el).onchange = (e) => { st.limiter = e.target.checked; save(); applyMixer(); };
+  $('#s-power', el).onchange = (e) => { st.powerSave = e.target.checked; save(); if (!st.powerSave) engine.wake(); };
   $('#s-tray', el).onchange = (e) => { st.closeToTray = e.target.checked; api.win.setCloseToTray(st.closeToTray); save(); };
   $('#s-ducklvl', el).onchange = (e) => { st.duckLevel = clamp(Number(e.target.value) || 0, 0, 100) / 100; e.target.value = Math.round(st.duckLevel * 100); save(); applyMixer(); };
 
@@ -1674,11 +1678,16 @@ function bindEvents() {
 
   window.addEventListener('resize', () => { requestAnimationFrame(drawWaves); drawTrim(); });
   // Hidden in the tray / minimized: stop the mic level meter (direct mode only needs it for display).
-  document.addEventListener('visibilitychange', () => {
+  // Direct mode only opens the mic to show its level, so close it while you're not looking.
+  const micMeterOn = () => {
+    document.body.classList.toggle('away', awayFromWindow());
     if (!isDirect()) return;
-    if (document.hidden) engine.setMicInput(null, false);
-    else applyMicInput();
-  });
+    if (awayFromWindow()) engine.setMicInput(null, false);
+    else { engine.wake(); applyMicInput(); }
+  };
+  document.addEventListener('visibilitychange', micMeterOn);
+  window.addEventListener('blur', micMeterOn);
+  window.addEventListener('focus', micMeterOn);
   navigator.mediaDevices.addEventListener('devicechange', async () => {
     await refreshDevices();
     await applyRouting();
@@ -1776,15 +1785,33 @@ function applyMemory() {
 
 async function preloadBuffers() {
   // Decode hotkey / favorite sounds up front so they fire instantly; everything else decodes
-  // on first play and is dropped again when the memory budget is reached.
+  // on first play and is dropped again when the memory budget is reached. Short pauses between
+  // files spread the work out, so start-up doesn't spike the CPU.
   applyMemory();
   const budget = engine.cacheLimit * 0.7;
   for (const s of lib.sounds) {
-    if (!engine.pinned.has(s.file)) continue;
+    if (!engine.pinned.has(s.file) || engine.isCached(s.file)) continue;
     if (engine.cacheBytes > budget) break;
     try { await engine.getBuffer(s.file); } catch { /* missing file */ }
+    await new Promise((r) => setTimeout(r, 40));
   }
 }
+
+/* ============================== power saving ============================== */
+// While nothing is playing, the audio engine sleeps and uses no CPU. The headphone side sleeps
+// after a few seconds of silence. The mic side also sleeps once the window is in the background
+// (in cable mode only when your voice isn't passed through, since that needs it running).
+// Playing a sound wakes it up again.
+let lastSoundAt = performance.now();
+const awayFromWindow = () => document.hidden || !document.hasFocus();
+function powerTick() {
+  if (!lib) return;
+  if (engine.voices.size) { lastSoundAt = performance.now(); return; }
+  if (!S().powerSave || performance.now() - lastSoundAt < 4000) return;
+  const micCanSleep = awayFromWindow() && (isDirect() || !S().passthrough);
+  engine.sleep({ mic: micCanSleep });
+}
+setInterval(powerTick, 1000);
 
 async function firstRunSetup() {
   const st = S();

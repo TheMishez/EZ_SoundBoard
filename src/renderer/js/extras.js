@@ -194,7 +194,7 @@ async function speakText(text, { voice, rate, monitorOnly = false } = {}) {
     id: 'tts:' + clip.file, name: 'Speech: ' + text.slice(0, 40), file: clip.file,
     volume: t.volume, speed: 1, trimStart: 0, trimEnd: null, loop: false, normalize: true, rms: clip.rms
   };
-  engine.resume();
+  await engine.wake();
   const toMic = !monitorOnly && S().soundsToMic;
   const delay = toMic ? pttPress() : 0;
   try {
