@@ -103,7 +103,8 @@ EZ Soundboard is built to have no effect on your game:
 - **No FPS impact.** Nothing is injected into the game. There's no overlay and no DLL in the game process.
 - **No added input lag.** Hotkeys use a tiny keyboard hook that does a table lookup and passes every key straight on. The mouse is only watched while Mouse 4/5 is bound, and even then mouse movement is passed on with a single check and never reaches the app, so 4–8 kHz mice are fine. With no hotkeys bound, nothing is hooked at all.
 - **No added mic delay.** Sounds are mixed into your mic inside Windows' audio engine with no extra buffering. The plugin never waits on locks or allocates memory while processing.
-- **Idle when idle.** The window redraws at 30 fps (10 fps when it's in the background, none when it's hidden in the tray), and the app stops streaming to the mic when nothing is playing.
+- **Sleeps when idle.** A few seconds after the last sound ends, the audio engine goes to sleep and uses no CPU. Playing a sound wakes it again; the first sound after a pause may start a few milliseconds later. (In VB-CABLE mode with your voice passed through, the mic side has to keep running.) You can turn this off in Settings → Playback.
+- **Light UI.** The window redraws at 30 fps (10 fps in the background, none when it's hidden in the tray), animations pause in the background, and the mic level meter only runs while you're looking at the window.
 
 ## Notes
 - Hotkeys use `ezsb-hotkeys.exe`. If it can't start, the app falls back to `uiohook-napi`, then to Electron's built-in shortcuts, which take the key away from the game.
