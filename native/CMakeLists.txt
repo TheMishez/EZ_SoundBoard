@@ -29,3 +29,7 @@ target_link_libraries(ezsb-bridge PRIVATE ole32 advapi32)
 # Enables / disables the plugin on microphones (runs elevated)
 add_executable(ezsb-mic-setup setup/setup.cpp)
 target_link_libraries(ezsb-mic-setup PRIVATE ole32 advapi32 uuid)
+
+# Global hotkeys (keyboard hook; mouse hook only while Mouse 4/5 is bound)
+add_executable(ezsb-hotkeys hotkeys/hotkeys.cpp)
+target_link_libraries(ezsb-hotkeys PRIVATE user32)
