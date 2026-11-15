@@ -228,7 +228,7 @@ function recordHotkey({ title = 'Press a key', mode = 'combo', current = '' } = 
   return new Promise((resolve) => {
     recording = true;
     api.suspendHotkeys(true);
-    const allowMouse = mode === 'single' || hotkeyBackend === 'uiohook';
+    const allowMouse = mode === 'single' || hotkeyBackend !== 'globalShortcut';
     const m = modal(`
       <div class="rec">
         <div class="rec-ring">${icon('key')}</div>
@@ -1302,10 +1302,10 @@ async function openSettings(tab = 'routing') {
         </section>
 
         <section data-pane="hotkeys">
-          <div class="backend ${hotkeyBackend === 'uiohook' ? 'ok' : ''}">
-            ${hotkeyBackend === 'uiohook'
-              ? `${icon('check')}<span><b>Pass-through hotkeys active.</b> Keys still reach your game, and Mouse 4/5 can be bound.</span>`
-              : `${icon('warn')}<span><b>Basic hotkeys.</b> Bound keys are captured by EZ Soundboard. Run <code>npm install</code> with build tools to enable pass-through hotkeys (uiohook-napi).</span>`}
+          <div class="backend ${hotkeyBackend !== 'globalShortcut' ? 'ok' : ''}">
+            ${hotkeyBackend !== 'globalShortcut'
+              ? `${icon('check')}<span><b>Pass-through hotkeys active.</b> Keys still reach your game and Mouse 4/5 can be bound.${hotkeyBackend === 'native' ? ' Built for zero input lag: your mouse is only watched while Mouse 4/5 is bound, and mouse movement is never touched.' : ''}</span>`
+              : `${icon('warn')}<span><b>Basic hotkeys.</b> Bound keys are captured by EZ Soundboard and Mouse 4/5 can't be bound. Reinstall EZ Soundboard to get pass-through hotkeys back.</span>`}
           </div>
           <div class="hk-list">
             ${[['stopAll', 'Stop all sounds'], ['toggleMic', 'Toggle sounds → mic'], ['togglePassthrough', 'Mute / unmute my voice']].map(([k, l]) => `
@@ -1708,15 +1708,30 @@ async function deleteCat(id) {
 
 /* ============================== animation loop ============================== */
 const meterState = { mon: 0, mic: 0, voice: 0 };
+// The UI redraws at 30 fps while focused and 10 fps in the background (e.g. on a second monitor
+// while you play), instead of your monitor's refresh rate, and stops completely while hidden.
+let uiTimer = null;
+let framePending = false;
+let padsLit = false;
+function scheduleFrame() {
+  if (uiTimer || framePending || document.hidden) return; // visibilitychange starts it again
+  uiTimer = setTimeout(() => { uiTimer = null; framePending = true; requestAnimationFrame(frame); }, document.hasFocus() ? 33 : 100);
+}
+document.addEventListener('visibilitychange', scheduleFrame);
+
 function frame() {
-  if (document.hidden) { requestAnimationFrame(frame); return; } // nothing to draw while hidden
+  framePending = false;
+  if (document.hidden) return;
   // pads progress
   const prog = new Map();
   for (const v of engine.voices.values()) {
     if (v.stopping) continue;
     prog.set(v.soundId, Math.max(prog.get(v.soundId) || 0, engine.progress(v)));
   }
-  for (const pad of document.querySelectorAll('#grid .pad')) {
+  // Nothing playing and no pad still lit: skip the pad pass entirely.
+  const pads = prog.size || padsLit ? document.querySelectorAll('#grid .pad') : [];
+  padsLit = prog.size > 0;
+  for (const pad of pads) {
     const p = prog.get(pad.dataset.id);
     if (p !== undefined) {
       if (!pad.classList.contains('playing')) pad.classList.add('playing');
@@ -1748,7 +1763,7 @@ function frame() {
   set('m-mon', lv('mon', engine.monAnalyser));
   set('m-mic', lv('mic', engine.micAnalyser));
   set('m-voice', lv('voice', engine.voiceAnalyser));
-  requestAnimationFrame(frame);
+  scheduleFrame();
 }
 
 /* ============================== boot ============================== */
@@ -1814,7 +1829,7 @@ async function boot() {
   applyMixer();
   await applyMicInput();
   await syncHotkeys();
-  requestAnimationFrame(frame);
+  scheduleFrame();
   if (!S().starterImported) await importStarterPack({ onlyIfNew: true });
   preloadBuffers();
   startupMicCheck();

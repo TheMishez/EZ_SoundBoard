@@ -7,6 +7,7 @@
       <include path="EZ Soundboard.exe" />
       <include path="resources/driver/ezsb-bridge.exe" />
       <include path="resources/driver/ezsb-mic-setup.exe" />
+      <include path="resources/driver/ezsb-hotkeys.exe" />
       <include path="resources/driver/EZSoundboardApo.dll" />
       <for-each>
         <authenticode-sign />

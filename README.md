@@ -14,7 +14,7 @@ A modern Windows soundboard that plays sounds **through your microphone**, simil
 - **Plays straight into your real mic**: nothing else to install. Your voice keeps working in every game and in Discord. A VB-CABLE mode is still available as a fallback.
 - **Voice control**: mute, boost or duck your real voice while sounds play (set the duck level to 0% to block your voice, like Soundpad's "Block voice").
 - **Auto push-to-talk**: holds your in-game voice key (keyboard or Mouse 4/5) while a sound plays, with adjustable pre-press and release timing.
-- **Global hotkeys that pass through to the game**: the keys still reach the game, and Mouse 4/5 can be bound. This uses `uiohook-napi`, and the app falls back to Electron's built-in shortcuts if that isn't available.
+- **Global hotkeys that pass through to the game**: the keys still reach the game, and Mouse 4/5 can be bound. A tiny built-in helper handles them without adding input lag (see *Performance* below).
 - **Per-sound settings**: trim with draggable handles on the waveform, volume up to 300%, speed/pitch, loop, loudness normalization, color and board.
 - **Play modes**: Overlap, Restart, Toggle (press again to stop) and Solo.
 - **Limiter** on the mic output, so loud sounds don't clip into distortion.
@@ -66,6 +66,7 @@ Option B (on your PC):
 |---|---|
 | `EZSoundboardApo.dll` | The mic plugin. Passes your voice through and adds the sound mix from shared memory. |
 | `ezsb-bridge.exe` | Started by the app. Streams the app's sound mix into shared memory. |
+| `ezsb-hotkeys.exe` | Global hotkeys. Watches the keyboard and, only while Mouse 4/5 is bound, the mouse side buttons. Keys still reach the game. |
 | `ezsb-mic-setup.exe` | Enables or disables the plugin on mics (`list`, `install default`, `uninstall all`). It backs up the original mic settings first and restarts Windows Audio. Logs: `%ProgramData%\EZSoundboard\` (setup.log, apo.log, bridge.log) |
 
 ### Troubleshooting direct mode
@@ -97,15 +98,22 @@ Turn it off in Settings → Stream Deck if you don't use it.
 ## Code signing policy
 Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org) (once the project is accepted; see [docs/SIGNING.md](docs/SIGNING.md)).
 
+## Performance
+EZ Soundboard is built to have no effect on your game:
+- **No FPS impact.** Nothing is injected into the game. There's no overlay and no DLL in the game process.
+- **No added input lag.** Hotkeys use a tiny keyboard hook that does a table lookup and passes every key straight on. The mouse is only watched while Mouse 4/5 is bound, and even then mouse movement is passed on with a single check and never reaches the app, so 4–8 kHz mice are fine. With no hotkeys bound, nothing is hooked at all.
+- **No added mic delay.** Sounds are mixed into your mic inside Windows' audio engine with no extra buffering. The plugin never waits on locks or allocates memory while processing.
+- **Idle when idle.** The window redraws at 30 fps (10 fps when it's in the background, none when it's hidden in the tray), and the app stops streaming to the mic when nothing is playing.
+
 ## Notes
-- `uiohook-napi` makes hotkeys work without blocking the key in your game. If it fails to install, the app falls back to Electron's built-in shortcuts, which take the key away from the game.
+- Hotkeys use `ezsb-hotkeys.exe`. If it can't start, the app falls back to `uiohook-napi`, then to Electron's built-in shortcuts, which take the key away from the game.
 - The sound library is stored in `%APPDATA%/EZ Soundboard/`.
 - Some anti-cheat systems (FACEIT, Vanguard) may ignore the key presses that auto push-to-talk sends. Sounds still go into the mic.
 
 ## Project layout
 ```
 src/main/main.js       window, tray, library storage, file import
-src/main/hotkeys.js    global hotkeys (uiohook pass-through / globalShortcut fallback)
+src/main/hotkeys.js    global hotkeys (ezsb-hotkeys.exe, with uiohook / globalShortcut fallbacks)
 src/main/ptt.js        auto push-to-talk (keybd_event / mouse_event via a PowerShell helper)
 src/main/apo.js        direct-to-mic: runs the setup tool (elevated) and the audio bridge
 src/main/updater.js    in-app updates from GitHub Releases (electron-updater)

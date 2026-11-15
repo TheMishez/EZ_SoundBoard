@@ -354,8 +354,8 @@ ipcMain.handle('remote:installPlugin', async () => {
 
 /* ---------------- Hotkeys + push-to-talk ---------------- */
 
-ipcMain.handle('hotkeys:set', (_e, bindings) => hotkeys.set(bindings));
-ipcMain.handle('hotkeys:backend', () => hotkeys.backend());
+ipcMain.handle('hotkeys:set', async (_e, bindings) => { await hotkeys.ready(); return hotkeys.set(bindings); });
+ipcMain.handle('hotkeys:backend', async () => { await hotkeys.ready(); return hotkeys.backend(); });
 ipcMain.on('hotkeys:suspend', (_e, on) => hotkeys.suspend(!!on));
 ipcMain.on('ptt:down', (_e, key) => ptt.down(key));
 ipcMain.on('ptt:up', () => ptt.up());
