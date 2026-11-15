@@ -1,0 +1,137 @@
+name: Build EZ Soundboard
+
+# - Every push to main: builds an unsigned installer you can grab from the run's Artifacts.
+# - Publishing a GitHub release (tag vX.Y.Z): builds, signs (once SignPath is set up) and attaches
+#   the installer + latest.yml to the release. Installed copies of EZ Soundboard see latest.yml
+#   and offer the update in the app.
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      # Signing turns on by itself for releases once the SIGNPATH_API_TOKEN secret exists (docs/SIGNING.md).
+      SIGN: ${{ github.event_name == 'release' && secrets.SIGNPATH_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check the release tag matches package.json
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = $env:TAG.TrimStart('v')
+          if ($tag -ne $v) {
+            Write-Error "Release tag is $tag but package.json says $v. Bump the version in package.json (or fix the tag) so the in-app updater sees the right version."
+            exit 1
+          }
+
+      - name: Build mic plugin (C++)
+        run: |
+          cmake -S native -B native/build -A x64
+          cmake --build native/build --config Release
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Pack Stream Deck plugin
+        run: node tools/pack-streamdeck.js
+
+      # 1. Build the program folder (not the installer yet).
+      - name: Build program folder
+        run: npx electron-builder --win --dir --publish never
+
+      # electron-builder only writes app-update.yml when it builds the installer in one go,
+      # so write it here; the installer step then packs it in. electron-updater reads it.
+      - name: Add in-app update config
+        shell: pwsh
+        run: |
+          $f = 'dist/win-unpacked/resources/app-update.yml'
+          if (!(Test-Path $f)) {
+            "owner: TheMishez`nrepo: EZ_SoundBoard`nprovider: github`nreleaseType: release`nupdaterCacheDirName: ez-soundboard-updater`n" | Set-Content -NoNewline -Encoding utf8NoBOM $f
+          }
+          Get-Content $f
+
+      # 2. Sign EZ Soundboard.exe and the mic plugin files inside it.
+      - name: Upload program for signing
+        if: env.SIGN == 'true'
+        id: app-upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-app
+          path: dist/win-unpacked
+      - name: Sign program
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'EZ_SoundBoard' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.app-upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/win-unpacked
+
+      # 3. Wrap it in the installer (also writes latest.yml for in-app updates).
+      - name: Build installer
+        run: npx electron-builder --win nsis --prepackaged dist/win-unpacked --publish never
+
+      # 4. Sign the installer itself (this is what removes the SmartScreen warning).
+      - name: Upload installer for signing
+        if: env.SIGN == 'true'
+        id: setup-upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/*.exe
+      - name: Sign installer
+        if: env.SIGN == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'EZ_SoundBoard' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.setup-upload.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
+
+      # Signing changes the installer's bytes: update the checksum in latest.yml to match.
+      - name: Fix latest.yml
+        run: node tools/fix-latest-yml.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EZ-Soundboard-Setup
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+            build/streamdeck/*.streamDeckPlugin
+
+      - name: Attach to the GitHub release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+            build/streamdeck/*.streamDeckPlugin

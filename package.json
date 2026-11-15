@@ -1,15 +1,23 @@
 {
   "name": "ez-soundboard",
   "productName": "EZ Soundboard",
-  "version": "1.1.0",
-  "description": "EZ Soundboard",
+  "version": "1.2.0",
+  "description": "Soundboard that plays sounds straight into your microphone",
   "main": "src/main/main.js",
   "author": "EZGGco",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheMishez/EZ_SoundBoard.git"
+  },
   "scripts": {
     "start": "electron .",
     "build:native": "cmake -S native -B native/build -A x64 && cmake --build native/build --config Release",
-    "dist": "npm run build:native && electron-builder --win --publish never"
+    "pack:streamdeck": "node tools/pack-streamdeck.js",
+    "dist": "npm run build:native && npm run pack:streamdeck && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -50,6 +58,21 @@
           "*.exe",
           "*.dll"
         ]
+      },
+      {
+        "from": "build/streamdeck",
+        "to": "streamdeck",
+        "filter": [
+          "*.streamDeckPlugin"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "TheMishez",
+        "repo": "EZ_SoundBoard",
+        "releaseType": "release"
       }
     ]
   }
