@@ -386,6 +386,7 @@ engine.onChange = () => {
   pttMaybeRelease();
   renderNowbar();
   pushPlayingToRemote();
+  wakeUi();
 };
 
 /* ============================== import ============================== */
@@ -494,6 +495,7 @@ function renderCats() {
 }
 
 function renderMixer() {
+  for (const k of Object.keys(meterShown)) delete meterShown[k]; // meters are rebuilt below
   const st = S();
   $('#mixer').innerHTML = `
     <div class="mix-row">
@@ -530,34 +532,48 @@ function apoDiagText() {
   return parts.join(' · ');
 }
 
+// Only touches the page when something actually changed: rewriting the pill restarts its
+// animation and repaints the window, and the mic plugin reports its status twice a second.
+let routeShown = '';
+let diagShown = '';
 function renderRoute() {
   const diag = document.getElementById('apo-diag');
-  if (diag) diag.textContent = 'Diagnostics: ' + apoDiagText();
-  const pill = $('#route-pill');
+  if (diag) {
+    const t = 'Diagnostics: ' + apoDiagText();
+    if (t !== diagShown || diag.textContent !== t) { diag.textContent = t; diagShown = t; }
+  }
+  let cls;
+  let html;
   if (isDirect()) {
     const mics = defaultMics();
     const on = mics.filter((d) => d.installed);
     const name = shortName((on[0] || mics[0] || {}).name || 'your mic');
     if (on.length && apoLive()) {
-      pill.className = 'route-pill no-drag live';
-      pill.innerHTML = `<i></i><span>LIVE</span><small>in ${esc(name)}</small>`;
+      cls = 'live';
+      html = `<i></i><span>LIVE</span><small>in ${esc(name)}</small>`;
     } else if (on.length) {
-      pill.className = 'route-pill no-drag ready';
-      pill.innerHTML = `<i></i><span>Ready</span><small>${esc(name)}</small>`;
+      cls = 'ready';
+      html = `<i></i><span>Ready</span><small>${esc(name)}</small>`;
     } else {
-      pill.className = 'route-pill no-drag off';
-      pill.innerHTML = `${icon('warn')}<span>Mic not enabled</span><small>Enable</small>`;
+      cls = 'off';
+      html = `${icon('warn')}<span>Mic not enabled</span><small>Enable</small>`;
     }
-    return;
-  }
-  const out = devices.outputs.find((d) => d.deviceId === S().micOutDevice);
-  if (S().micOutDevice && routeOk.mic && out) {
-    pill.className = 'route-pill no-drag live';
-    pill.innerHTML = `<i></i><span>LIVE</span><small>→ ${esc(shortName(out.label))}</small>`;
   } else {
-    pill.className = 'route-pill no-drag off';
-    pill.innerHTML = `${icon('warn')}<span>Mic not routed</span><small>Set up</small>`;
+    const out = devices.outputs.find((d) => d.deviceId === S().micOutDevice);
+    if (S().micOutDevice && routeOk.mic && out) {
+      cls = 'live';
+      html = `<i></i><span>LIVE</span><small>→ ${esc(shortName(out.label))}</small>`;
+    } else {
+      cls = 'off';
+      html = `${icon('warn')}<span>Mic not routed</span><small>Set up</small>`;
+    }
   }
+  const key = cls + '|' + html;
+  if (key === routeShown) return;
+  routeShown = key;
+  const pill = $('#route-pill');
+  pill.className = 'route-pill no-drag ' + cls;
+  pill.innerHTML = html;
 }
 const shortName = (l) => String(l || '').replace(/\s*\(.*?\)\s*/g, ' ').trim() || 'Device';
 
@@ -1681,6 +1697,7 @@ function bindEvents() {
   // Direct mode only opens the mic to show its level, so close it while you're not looking.
   const micMeterOn = () => {
     document.body.classList.toggle('away', awayFromWindow());
+    if (!awayFromWindow()) wakeUi();
     if (!isDirect()) return;
     if (awayFromWindow()) engine.setMicInput(null, false);
     else { engine.wake(); applyMicInput(); }
@@ -1763,17 +1780,27 @@ function frame() {
     return meterState[k];
   };
   const set = (sel, v) => {
+    const db = v > 0 ? 20 * Math.log10(v) : -60;
+    const tf = `scaleX(${clamp((db + 60) / 60, 0, 1).toFixed(2)})`;
+    if (meterShown[sel] === tf) return; // unchanged: no repaint
     const e = document.getElementById(sel);
     if (!e) return;
-    const db = v > 0 ? 20 * Math.log10(v) : -60;
-    e.style.transform = `scaleX(${clamp((db + 60) / 60, 0, 1).toFixed(3)})`;
+    meterShown[sel] = tf;
+    e.style.transform = tf;
     e.classList.toggle('hot', v > 0.95);
   };
   set('m-mon', lv('mon', engine.monAnalyser));
   set('m-mic', lv('mic', engine.micAnalyser));
   set('m-voice', lv('voice', engine.voiceAnalyser));
+  // In the background with nothing playing and the meters at rest: stop redrawing entirely.
+  // Playing a sound or coming back to the window starts it again.
+  const quiet = !engine.voices.size && meterState.mon < 0.001 && meterState.mic < 0.001 && meterState.voice < 0.001;
+  if (quiet && awayFromWindow()) { uiResting = true; return; }
   scheduleFrame();
 }
+const meterShown = {};
+let uiResting = false;
+function wakeUi() { if (uiResting) { uiResting = false; scheduleFrame(); } }
 
 /* ============================== boot ============================== */
 const MEMORY_MB = { low: 48, balanced: 128, fast: 512 };

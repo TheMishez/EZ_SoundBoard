@@ -371,9 +371,10 @@ kbd {
 .stats { text-align: center; }
 
 /* ---------------- menu ---------------- */
+/* No backdrop blur anywhere: blurring the window behind an overlay has to be redone on every repaint. */
 #menu {
   position: fixed; z-index: 50; min-width: 220px; padding: 6px; border-radius: 12px;
-  background: rgba(20, 22, 28, 0.96); backdrop-filter: blur(14px);
+  background: rgba(20, 22, 28, 0.99);
   border: 1px solid var(--line2); box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
   animation: menuIn 0.12s ease-out;
 }
@@ -393,7 +394,7 @@ kbd {
 /* ---------------- modal ---------------- */
 .modal-back {
   position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
-  background: rgba(3, 4, 6, 0.55); backdrop-filter: blur(6px); opacity: 0; transition: opacity 0.16s;
+  background: rgba(3, 4, 6, 0.72); opacity: 0; transition: opacity 0.16s;
 }
 .modal-back.in { opacity: 1; }
 .modal {
@@ -469,7 +470,7 @@ kbd {
 .toast.ok .i { color: var(--ok); }
 #drop-overlay {
   position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; pointer-events: none;
-  background: rgba(5, 6, 8, 0.75); backdrop-filter: blur(8px); opacity: 0; transition: opacity 0.15s;
+  background: rgba(5, 6, 8, 0.85); opacity: 0; transition: opacity 0.15s;
 }
 #drop-overlay > div { text-align: center; padding: 50px 70px; border-radius: 26px; border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 5%, transparent); }
 #drop-overlay .i { width: 50px; height: 50px; color: var(--accent); }
