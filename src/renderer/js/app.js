@@ -78,7 +78,8 @@ const DEFAULT_SETTINGS = {
   setupSeen: false,
   micMode: '',            // 'direct' (built-in plugin, no cable) | 'cable' (VB-CABLE)
   starterImported: false,
-  checkMicOnStartup: true
+  checkMicOnStartup: true,
+  tts: { voice: '', rate: 1, volume: 1, recent: [] }
 };
 
 let lib = null;
@@ -119,6 +120,8 @@ let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => api.saveLib(lib), 350);
+  pushLibraryToRemote();
+  pushPlayingToRemote();
 }
 
 const S = () => lib.settings;
@@ -380,19 +383,25 @@ engine.onChange = () => {
   sendVoice();
   pttMaybeRelease();
   renderNowbar();
+  pushPlayingToRemote();
 };
 
 /* ============================== import ============================== */
 async function importPaths(paths, { category, quiet = false } = {}) {
   if (!paths || !paths.length) return 0;
-  const cat = category !== undefined ? category : (findCat(view.section) ? view.section : null);
   const res = await api.importPaths(paths);
   if (!res.length) { if (!quiet) toast('No supported audio files found', 'err'); return 0; }
+  return addImported(res, { category, quiet });
+}
+
+/** Adds files already copied into the library folder ([{ id, file, name }]) as sounds. */
+async function addImported(res, { category, quiet = false, normalize = false } = {}) {
+  const cat = category !== undefined ? category : (findCat(view.section) ? view.section : null);
   let ok = 0;
   for (const r of res) {
     const s = {
       id: r.id, name: r.name, file: r.file, category: cat, volume: 1, speed: 1,
-      trimStart: 0, trimEnd: null, loop: false, normalize: false, hotkey: '', color: null,
+      trimStart: 0, trimEnd: null, loop: false, normalize, hotkey: '', color: null,
       fav: false, plays: 0, added: Date.now(), duration: 0, peaks: [], rms: 0
     };
     try {
@@ -1268,7 +1277,8 @@ async function openSettings(tab = 'routing') {
   await refreshDevices();
   const st = S();
   if (apoAvail) await refreshApo();
-  const tabs = [['routing', 'mic', 'Microphone'], ['ptt', 'key', 'Push-to-talk'], ['hotkeys', 'bolt', 'Hotkeys'], ['playback', 'play', 'Playback'], ['look', 'grid', 'Appearance']];
+  await refreshRemoteStatus();
+  const tabs = [['routing', 'mic', 'Microphone'], ['ptt', 'key', 'Push-to-talk'], ['hotkeys', 'bolt', 'Hotkeys'], ['playback', 'play', 'Playback'], ['look', 'grid', 'Appearance'], ['streamdeck', 'deck', 'Stream Deck'], ['updates', 'refresh', 'Updates']];
   const m = modal(`
     <div class="set-head"><h3>Settings</h3><button class="icon-btn sm" data-close>${icon('x')}</button></div>
     <div class="set">
@@ -1329,6 +1339,10 @@ async function openSettings(tab = 'routing') {
           </div>
         </section>
 
+        <section data-pane="streamdeck" id="deck-pane"></section>
+
+        <section data-pane="updates" id="update-pane"></section>
+
         <section data-pane="look">
           <label>Accent color</label>
           <div class="swatches big" id="s-accent">${ACCENTS.map((c) => `<button data-c="${c}" style="--c:${c}" class="${st.accent === c ? 'on' : ''}"></button>`).join('')}
@@ -1345,6 +1359,8 @@ async function openSettings(tab = 'routing') {
   show(tab);
   $$('.set-nav button', el).forEach((b) => (b.onclick = () => show(b.dataset.tab)));
   renderRoutingPane($('#routing-pane', el));
+  renderDeckPane($('#deck-pane', el));
+  renderUpdatePane($('#update-pane', el));
 
   $('#s-ptt', el).onchange = (e) => { st.ptt.enabled = e.target.checked; save(); renderMixer(); renderNowbar(); };
   $('#s-pttkey', el).onclick = async () => {
@@ -1459,6 +1475,8 @@ function bindEvents() {
     showMenu(r.left, r.bottom + 6, [
       { label: 'Add files…', icon: 'file', action: async () => importPaths(await api.pickFiles()) },
       { label: 'Import folder…', icon: 'folder', action: async () => importPaths(await api.pickFolder()) },
+      { label: 'Add from link…', icon: 'link', hint: 'Ctrl+V', action: () => openLinkDialog() },
+      { label: 'Text to speech…', icon: 'speak', action: () => openTts() },
       '-',
       { label: 'Add starter sounds', icon: 'star', action: () => importStarterPack() }
     ]);
@@ -1787,6 +1805,7 @@ async function boot() {
   applyAccent();
   api.win.setCloseToTray(S().closeToTray);
   bindEvents();
+  await initExtras();
   renderAll();
   await refreshDevices();
   await firstRunSetup();

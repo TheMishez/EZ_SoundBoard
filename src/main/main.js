@@ -8,6 +8,10 @@ const crypto = require('crypto');
 const hotkeys = require('./hotkeys');
 const ptt = require('./ptt');
 const apo = require('./apo');
+const updater = require('./updater');
+const tts = require('./tts');
+const remote = require('./remote');
+const { importFromLink, LinkError } = require('./linkimport');
 
 // Audio must keep running (and start without a click) even when the window is hidden in the tray.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -29,6 +33,9 @@ function readConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { return {}; }
 }
 const config = readConfig();
+function writeConfig() {
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(config)); } catch (e) { console.warn('config save failed', e); }
+}
 if (config.hardwareAcceleration === false) app.disableHardwareAcceleration();
 // Keep the JS heap modest - the app holds no large JS data (audio lives in the audio engine).
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
@@ -74,6 +81,7 @@ async function migrateFromOldName() {
 async function init() {
   await fsp.mkdir(SOUND_DIR, { recursive: true });
   try { await migrateFromOldName(); } catch (e) { console.warn('migration failed', e); }
+  await tts.cleanup(SOUND_DIR);
   protocol.handle('app', (req) => {
     const file = path.normalize(path.join(RENDERER_DIR, decodeURIComponent(new URL(req.url).pathname)));
     if (!file.startsWith(RENDERER_DIR)) return new Response('Forbidden', { status: 403 });
@@ -85,6 +93,21 @@ async function init() {
     if (win && !win.isDestroyed()) win.webContents.send('hotkey', action);
   });
   ptt.warmup();
+  updater.init({
+    enabled: config.checkUpdates !== false,
+    onState: (st) => { toWindow('update:state', st); updateTrayMenu(); },
+    beforeInstall: () => { quitting = true; }
+  });
+  remote.init({
+    enabled: config.remoteControl !== false,
+    version: app.getVersion(),
+    send: (cmd) => toWindow('remote:cmd', cmd),
+    onStatus: (st) => toWindow('remote:status', st)
+  });
+}
+
+function toWindow(channel, data) {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, data);
 }
 
 function createWindow() {
@@ -129,16 +152,27 @@ function createTray() {
     const img = nativeImage.createFromPath(path.join(ASSETS, 'tray.png'));
     tray = new Tray(img);
     tray.setToolTip('EZ Soundboard');
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: 'Open EZ Soundboard', click: showWindow },
-      { label: 'Stop all sounds', click: () => win && win.webContents.send('hotkey', 'stopAll') },
-      { type: 'separator' },
-      { label: 'Quit', click: () => { quitting = true; app.quit(); } }
-    ]));
+    updateTrayMenu();
     tray.on('click', showWindow);
   } catch (e) {
     console.warn('Tray unavailable', e);
   }
+}
+
+function updateTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  const up = updater.state();
+  const items = [
+    { label: 'Open EZ Soundboard', click: showWindow },
+    { label: 'Stop all sounds', click: () => toWindow('hotkey', 'stopAll') },
+    { type: 'separator' }
+  ];
+  if (up.phase === 'ready') items.push({ label: `Restart to update to ${up.version}`, click: () => updater.install() });
+  else if (up.phase === 'available') items.push({ label: `Update to ${up.version}…`, click: () => { showWindow(); updater.download(); } });
+  else if (up.phase === 'downloading') items.push({ label: `Downloading update… ${up.percent}%`, enabled: false });
+  else items.push({ label: 'Check for updates', click: () => updater.check(true) });
+  items.push({ type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } });
+  tray.setContextMenu(Menu.buildFromTemplate(items));
 }
 
 function showWindow() {
@@ -150,6 +184,7 @@ function showWindow() {
 
 app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => {
+  tts.cleanupSync(SOUND_DIR);
   apo.stopBridge();
   hotkeys.dispose();
   ptt.dispose();
@@ -245,11 +280,77 @@ ipcMain.handle('sounds:starter', async () => {
   });
 });
 
+ipcMain.handle('sounds:importUrl', async (_e, url) => {
+  try {
+    return { ok: true, sound: await importFromLink(SOUND_DIR, url) };
+  } catch (e) {
+    console.warn('link import failed', url, e);
+    return { ok: false, error: e instanceof LinkError ? e.message : "Couldn't download that link" };
+  }
+});
+
 ipcMain.handle('sounds:read', async (_e, file) => fsp.readFile(safeFile(file)));
 ipcMain.handle('sounds:delete', async (_e, file) => {
   try { await fsp.unlink(safeFile(file)); } catch { /* already gone */ }
 });
 ipcMain.handle('sounds:reveal', (_e, file) => shell.showItemInFolder(safeFile(file)));
+
+/* ---------------- Text-to-speech ---------------- */
+
+ipcMain.handle('tts:voices', (_e, refresh) => tts.voices(!!refresh));
+ipcMain.handle('tts:speak', async (_e, opts) => {
+  try {
+    return { ok: true, ...(await tts.speak(SOUND_DIR, opts || {})) };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
+// Keeps a spoken clip as a normal sound: renames tts-xxxx.wav so the clean-up leaves it alone.
+ipcMain.handle('tts:keep', async (_e, file) => {
+  const name = path.basename(String(file));
+  if (!/^tts-[0-9a-f]{12}\.wav$/.test(name)) return null;
+  const id = crypto.randomBytes(6).toString('hex');
+  await fsp.rename(path.join(SOUND_DIR, name), path.join(SOUND_DIR, id + '.wav'));
+  return { id, file: id + '.wav' };
+});
+
+/* ---------------- Updates ---------------- */
+
+ipcMain.handle('update:state', () => updater.state());
+ipcMain.handle('update:check', () => updater.check(true));
+ipcMain.handle('update:download', () => updater.download());
+ipcMain.handle('update:install', () => updater.install());
+ipcMain.handle('update:open', () => updater.openPage());
+ipcMain.handle('update:setEnabled', (_e, on) => {
+  config.checkUpdates = !!on;
+  writeConfig();
+  updater.setEnabled(!!on);
+  return updater.state();
+});
+ipcMain.handle('app:version', () => app.getVersion());
+
+/* ---------------- Stream Deck / local control ---------------- */
+
+const streamDeckFile = () => app.isPackaged
+  ? path.join(process.resourcesPath, 'streamdeck', 'EZ-Soundboard.streamDeckPlugin')
+  : path.join(__dirname, '..', '..', 'build', 'streamdeck', 'EZ-Soundboard.streamDeckPlugin');
+
+ipcMain.handle('remote:status', () => ({ ...remote.status(), enabled: config.remoteControl !== false, pluginAvailable: fs.existsSync(streamDeckFile()) }));
+ipcMain.handle('remote:setEnabled', (_e, on) => {
+  config.remoteControl = !!on;
+  writeConfig();
+  remote.setEnabled(!!on);
+  return { ...remote.status(), enabled: !!on };
+});
+ipcMain.on('remote:library', (_e, data) => remote.setLibrary(data));
+ipcMain.on('remote:playing', (_e, data) => remote.setPlaying(data));
+// Opening the .streamDeckPlugin file makes the Stream Deck app install it.
+ipcMain.handle('remote:installPlugin', async () => {
+  const f = streamDeckFile();
+  if (!fs.existsSync(f)) return { ok: false, error: 'The Stream Deck plugin is not included in this build' };
+  const err = await shell.openPath(f);
+  return err ? { ok: false, error: 'Install the Stream Deck app first (elgato.com/downloads), then try again' } : { ok: true };
+});
 
 /* ---------------- Hotkeys + push-to-talk ---------------- */
 
@@ -280,7 +381,7 @@ ipcMain.on('win:closeToTray', (_e, v) => { closeToTray = !!v; });
 ipcMain.handle('app:getHwAccel', () => config.hardwareAcceleration !== false);
 ipcMain.handle('app:setHwAccel', (_e, on) => {
   config.hardwareAcceleration = !!on;
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config));
+  writeConfig();
   return true;
 });
 ipcMain.on('app:openExternal', (_e, url) => {

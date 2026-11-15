@@ -44,6 +44,35 @@ contextBridge.exposeInMainWorld('api', {
     setCloseToTray: (v) => ipcRenderer.send('win:closeToTray', v),
     onMaximized: (cb) => ipcRenderer.on('win:maximized', (_e, v) => cb(v))
   },
+  importUrl: (url) => ipcRenderer.invoke('sounds:importUrl', url),
+
+  tts: {
+    voices: (refresh) => ipcRenderer.invoke('tts:voices', refresh),
+    speak: (opts) => ipcRenderer.invoke('tts:speak', opts),
+    keep: (file) => ipcRenderer.invoke('tts:keep', file)
+  },
+
+  update: {
+    state: () => ipcRenderer.invoke('update:state'),
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    openPage: () => ipcRenderer.invoke('update:open'),
+    setEnabled: (on) => ipcRenderer.invoke('update:setEnabled', on),
+    onState: (cb) => ipcRenderer.on('update:state', (_e, st) => cb(st))
+  },
+  appVersion: () => ipcRenderer.invoke('app:version'),
+
+  remote: {
+    status: () => ipcRenderer.invoke('remote:status'),
+    setEnabled: (on) => ipcRenderer.invoke('remote:setEnabled', on),
+    installPlugin: () => ipcRenderer.invoke('remote:installPlugin'),
+    setLibrary: (data) => ipcRenderer.send('remote:library', data),
+    setPlaying: (data) => ipcRenderer.send('remote:playing', data),
+    onCommand: (cb) => ipcRenderer.on('remote:cmd', (_e, cmd) => cb(cmd)),
+    onStatus: (cb) => ipcRenderer.on('remote:status', (_e, st) => cb(st))
+  },
+
   openExternal: (url) => ipcRenderer.send('app:openExternal', url),
   getHardwareAcceleration: () => ipcRenderer.invoke('app:getHwAccel'),
   setHardwareAcceleration: (on) => ipcRenderer.invoke('app:setHwAccel', on)

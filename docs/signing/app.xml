@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration "app": signs EZ Soundboard's own program files before the installer is built.
+     Only files built from this repo are signed (not Electron's or other projects' DLLs). -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file-set>
+      <include path="EZ Soundboard.exe" />
+      <include path="resources/driver/ezsb-bridge.exe" />
+      <include path="resources/driver/ezsb-mic-setup.exe" />
+      <include path="resources/driver/EZSoundboardApo.dll" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
+  </zip-file>
+</artifact-configuration>
